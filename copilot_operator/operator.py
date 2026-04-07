@@ -45,7 +45,7 @@ from .prompts import (
 )
 from .reasoning import Diagnosis, diagnose, format_diagnosis_for_prompt
 from .repo_inspector import as_dict
-from .repo_ops import create_operator_commit, is_git_repo, pre_run_safety_check
+from .repo_ops import check_protected_paths, create_operator_commit, get_diff_summary, is_git_repo, pre_run_safety_check
 from .session_store import extract_response_text, get_latest_request, request_needs_continue
 from .snapshot import SnapshotManager, should_rollback, should_snapshot, snapshot_summary, take_snapshot
 from .terminal import bold, cyan, dim, score_color, status_badge
@@ -226,6 +226,37 @@ class CopilotOperator:
         self.runtime['plan'] = merge_plan(self.runtime.get('plan'), plan_update, goal_text, terminal_status=assessment.status)
         plan_snapshot = summarize_plan(self.runtime.get('plan'))
 
+        # Protected paths enforcement — check BEFORE validation so we can rollback first
+        protected_violations = self._check_protected_paths()
+        if protected_violations:
+            violated_str = ', '.join(protected_violations[:5])
+            logger.warning('Protected path violation at iteration %d: %s', iteration, violated_str)
+            self._live_print(
+                f'{cyan(f"[{iteration}/{self.config.max_iterations}]")} '
+                f'{status_badge("error")} Protected path violation: {violated_str}'
+            )
+            self.runtime['status'] = 'error'
+            self.runtime['finishedAt'] = self._now()
+            self.runtime['finalReason'] = f'Copilot modified protected path(s): {violated_str}'
+            self.runtime['finalReasonCode'] = 'PROTECTED_PATH_VIOLATION'
+            self.runtime['pendingDecision'] = None
+            self._write_runtime()
+            # Attempt rollback
+            if hasattr(self, '_snapshot_mgr'):
+                from .snapshot import rollback_to_last_good
+                rollback_to_last_good(self._snapshot_mgr)
+            result = {
+                'status': 'error',
+                'reason': f'Copilot modified protected path(s): {violated_str}',
+                'reasonCode': 'PROTECTED_PATH_VIOLATION',
+                'violations': protected_violations,
+                'iterations': iteration,
+                'stateFile': str(self.config.state_file),
+            }
+            dump_json(self.config.summary_file, result)
+            self._post_run_hooks(result)
+            return result
+
         after_validation_results = run_validations(self.config.validation, self.config.workspace, phase='after_response')
         after_validation_path = self._artifact_path(iteration, 'validation.after.json')
         dump_json(after_validation_path, after_validation_results)
@@ -291,16 +322,23 @@ class CopilotOperator:
         logger.info('Iteration %d result: score=%s status=%s decision=%s',
                      iteration, assessment.score, assessment.status, decision.action)
 
-        # Live progress summary line
+        # Live progress summary line — includes diff summary when available
         validation_summary = ''
         pass_count = sum(1 for v in after_validation_results if v.get('status') == 'pass')
         fail_count = sum(1 for v in after_validation_results if v.get('status') != 'pass')
         if after_validation_results:
             validation_summary = f' | validations: {pass_count}✓/{fail_count}✗'
+        diff_summary = ''
+        if is_git_repo(self.config.workspace):
+            raw_diff = get_diff_summary(self.config.workspace)
+            if raw_diff:
+                # Show only the last summary line e.g. "3 files changed, 42 insertions(+), 5 deletions(-)"
+                last_line = raw_diff.strip().splitlines()[-1]
+                diff_summary = f' | {dim(last_line)}'
         self._live_print(
             f'{cyan(f"[{iteration}/{self.config.max_iterations}]")} '
             f'score={score_color(assessment.score)} '
-            f'status={status_badge(assessment.status)} {dim("→")} {bold(decision.reason_code)}{validation_summary}'
+            f'status={status_badge(assessment.status)} {dim("→")} {bold(decision.reason_code)}{validation_summary}{diff_summary}'
         )
 
         if decision.action == 'stop':
@@ -733,6 +771,17 @@ class CopilotOperator:
 
     def _existing_project_memory_files(self) -> list[Path]:
         return [path for path in self.config.repo_profile.project_memory_files if path.exists()]
+
+    def _check_protected_paths(self) -> list[str]:
+        """Return list of protected paths that Copilot has modified this iteration."""
+        protected = self.config.repo_profile.protected_paths
+        if not protected:
+            return []
+        try:
+            return check_protected_paths(self.config.workspace, protected)
+        except Exception as exc:
+            logger.debug('Protected path check failed: %s', exc)
+            return []
 
     def _diagnose(self, iteration: int) -> Diagnosis:
         """Run intelligence engine on current history."""

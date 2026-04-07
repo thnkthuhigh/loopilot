@@ -352,5 +352,82 @@ class TestRepoMapInPrompt(unittest.TestCase):
         self.assertNotIn('Codebase map', prompt)
 
 
+# ---------------------------------------------------------------------------
+# Protected paths enforcement
+# ---------------------------------------------------------------------------
+import subprocess as _subprocess
+
+from copilot_operator.repo_ops import check_protected_paths
+
+
+def _git_available() -> bool:
+    try:
+        _subprocess.run(['git', '--version'], capture_output=True, check=True, timeout=5)
+        return True
+    except Exception:
+        return False
+
+
+_GIT = _git_available()
+
+
+def _init_git_repo(d: str) -> None:
+    for cmd in [
+        ['git', 'init'],
+        ['git', 'config', 'user.email', 'test@test.com'],
+        ['git', 'config', 'user.name', 'Test'],
+        ['git', 'commit', '--allow-empty', '-m', 'init'],
+    ]:
+        _subprocess.run(cmd, cwd=d, capture_output=True)
+
+
+class TestCheckProtectedPaths(unittest.TestCase):
+    def test_empty_protected_list_returns_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(check_protected_paths(Path(d), []), [])
+
+    def test_non_git_workspace_returns_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(check_protected_paths(Path(d), ['secret.env', 'config/']), [])
+
+    @unittest.skipUnless(_GIT, 'git not available')
+    def test_clean_repo_no_violations(self):
+        with tempfile.TemporaryDirectory() as d:
+            wp = Path(d)
+            _init_git_repo(d)
+            (wp / 'file.py').write_text('x = 1')
+            _subprocess.run(['git', 'add', '.'], cwd=d, capture_output=True)
+            _subprocess.run(['git', 'commit', '-m', 'add file'], cwd=d, capture_output=True)
+            self.assertEqual(check_protected_paths(wp, ['secret.env']), [])
+
+    @unittest.skipUnless(_GIT, 'git not available')
+    def test_exact_file_violation(self):
+        with tempfile.TemporaryDirectory() as d:
+            wp = Path(d)
+            _init_git_repo(d)
+            (wp / 'secret.env').write_text('KEY=value')
+            result = check_protected_paths(wp, ['secret.env'])
+            self.assertIn('secret.env', result)
+
+    @unittest.skipUnless(_GIT, 'git not available')
+    def test_directory_prefix_violation(self):
+        with tempfile.TemporaryDirectory() as d:
+            wp = Path(d)
+            _init_git_repo(d)
+            (wp / 'config').mkdir()
+            (wp / 'config' / 'prod.yml').write_text('env: production')
+            result = check_protected_paths(wp, ['config'])
+            self.assertTrue(len(result) > 0)
+            self.assertTrue(any('prod.yml' in v for v in result))
+
+    @unittest.skipUnless(_GIT, 'git not available')
+    def test_no_match_different_file_no_violation(self):
+        with tempfile.TemporaryDirectory() as d:
+            wp = Path(d)
+            _init_git_repo(d)
+            (wp / 'main.py').write_text('print("hello")')
+            self.assertEqual(check_protected_paths(wp, ['secret.env', 'config/']), [])
+
+
 if __name__ == '__main__':
     unittest.main()

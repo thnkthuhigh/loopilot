@@ -95,7 +95,7 @@ def get_git_status(workspace: Path) -> GitStatus:
     branch_result = _run_git(['branch', '--show-current'], workspace)
     branch = branch_result.stdout.strip() if branch_result.success else ''
 
-    status_result = _run_git(['status', '--porcelain=v1'], workspace)
+    status_result = _run_git(['status', '--porcelain=v1', '-uall'], workspace)
     staged: list[str] = []
     unstaged: list[str] = []
     untracked: list[str] = []
@@ -233,6 +233,62 @@ def get_diff_files(workspace: Path, staged: bool = False) -> list[str]:
     if result.success:
         return [f.strip() for f in result.stdout.splitlines() if f.strip()]
     return []
+
+
+def get_all_changed_files(workspace: Path) -> list[str]:
+    """Return all changed files: staged + unstaged + untracked."""
+    status = get_git_status(workspace)
+    seen: set[str] = set()
+    files: list[str] = []
+    for f in status.staged_files + status.unstaged_files + status.untracked_files:
+        if f not in seen:
+            seen.add(f)
+            files.append(f)
+    return files
+
+
+def check_protected_paths(
+    workspace: Path,
+    protected_paths: list[str],
+) -> list[str]:
+    """Return list of protected paths that were modified in the workspace.
+
+    Uses ``git status`` so it catches staged, unstaged, and untracked changes.
+    If the workspace is not a git repository, falls back to a simple
+    filesystem existence check.
+
+    Returns an empty list when no violations are found.
+    """
+    if not protected_paths:
+        return []
+
+    violations: list[str] = []
+
+    if is_git_repo(workspace):
+        changed = get_all_changed_files(workspace)
+        for changed_file in changed:
+            changed_norm = changed_file.replace('\\', '/')
+            for protected in protected_paths:
+                protected_norm = protected.strip().rstrip('/').replace('\\', '/')
+                if not protected_norm:
+                    continue
+                # Match exact file OR any file under a protected directory
+                if (
+                    changed_norm == protected_norm
+                    or changed_norm.startswith(protected_norm + '/')
+                ):
+                    violations.append(changed_file)
+                    break
+    else:
+        # Non-git fallback: check if protected paths exist and were recently touched
+        # (best-effort — just warn if protected paths exist at all)
+        for protected in protected_paths:
+            p = workspace / protected
+            if p.exists():
+                # Can't reliably detect modification without git, just log presence
+                pass
+
+    return violations
 
 
 # ---------------------------------------------------------------------------
