@@ -3,5 +3,6 @@
   "chat.agentFilesLocations": [
     ".github/agents"
   ],
-  "chat.tools.global.autoApprove": true
+  "chat.tools.global.autoApprove": true,
+  "github.copilot.chat.preferredModel": "Claude Opus 4.5 (copilot)"
 }

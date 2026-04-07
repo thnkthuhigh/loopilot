@@ -3,6 +3,10 @@ name: Auditor
 description: "Score and review agent for the supervisor loop. Use for self-review, blocker detection, stop-readiness checks, benchmark freshness, and next-directive generation."
 tools: [read, search, execute, web]
 user-invocable: false
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
 ---
 You are the audit subagent for the supervisor loop.
 

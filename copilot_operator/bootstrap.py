@@ -311,10 +311,20 @@ def _vscode_settings_text() -> str:
 """
 
 
+_PREFERRED_MODELS = [
+    'Claude Opus 4.5 (copilot)',
+    'Claude Sonnet 4.5 (copilot)',
+    'gpt-4o (copilot)',
+]
+
+
 def _merge_vscode_settings(workspace: Path) -> None:
-    """Ensure chat.tools.global.autoApprove is set in .vscode/settings.json.
+    """Ensure required VS Code chat settings are set in .vscode/settings.json.
 
     Merges into an existing file rather than overwriting it.
+    Sets:
+    - chat.tools.global.autoApprove: true  (skip per-tool Allow prompts)
+    - github.copilot.chat.preferredModel   (consistent model across machines)
     """
     settings_path = workspace / '.vscode' / 'settings.json'
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -326,11 +336,16 @@ def _merge_vscode_settings(workspace: Path) -> None:
         except (json.JSONDecodeError, OSError):
             existing = {}
 
-    if existing.get('chat.tools.global.autoApprove') is True:
-        return  # already set, nothing to do
+    changed = False
+    if existing.get('chat.tools.global.autoApprove') is not True:
+        existing['chat.tools.global.autoApprove'] = True
+        changed = True
+    if 'github.copilot.chat.preferredModel' not in existing:
+        existing['github.copilot.chat.preferredModel'] = _PREFERRED_MODELS[0]
+        changed = True
 
-    existing['chat.tools.global.autoApprove'] = True
-    settings_path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
+    if changed:
+        settings_path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
 
 
 def scaffold_map(workspace: Path) -> dict[Path, str]:

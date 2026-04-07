@@ -4,6 +4,10 @@ description: "Use when you want an autonomous local supervisor loop for GitHub C
 argument-hint: "State the goal, constraints, and current progress"
 tools: [agent, read, search, web, todo]
 agents: [Researcher, Implementer, Auditor]
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
 hooks:
   Stop:
     - type: command

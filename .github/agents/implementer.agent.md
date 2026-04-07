@@ -3,6 +3,10 @@ name: Implementer
 description: "Focused code-changing agent for the supervisor loop. Use for concrete edits, local validation, and fixing the next directive from the audit."
 tools: [read, search, edit, execute, todo]
 user-invocable: false
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
 ---
 You are the implementation subagent for the supervisor loop.
 
