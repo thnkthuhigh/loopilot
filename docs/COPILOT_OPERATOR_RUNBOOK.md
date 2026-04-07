@@ -37,6 +37,14 @@ npm run supervisor:doctor
 - Copilot dang dang nhap va chay duoc o mode can dung
 - Workspace nay resolve duoc `workspaceStorage`
 
+### 3.2a Node.js (bat buoc cho hooks)
+
+- Node.js >= 18 phai duoc cai va co tren PATH (`node --version` phai ra version)
+- Neu Node.js thieu, hook `pre-tool-use.cjs` se khong chay duoc
+- Khi hook khong chay, VS Code hien hop thoai "Allow?" moi lan agent dung tool
+- Kiem tra: `node --version` trong terminal
+- Neu van bi hoi "Allow" du da cai Node.js, vao VS Code Chat → doi Permission level sang **Bypass Approvals** hoac **Autopilot** cho session hien tai
+
 ### 3.3 Config
 
 File can xem la [copilot-operator.yml](/c:/Users/thnkthuhigh/emmeo/copilot-operator.yml).
