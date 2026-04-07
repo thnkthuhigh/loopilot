@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from .adversarial import build_critic_prompt, should_run_critic
-from .bootstrap import cleanup_run_logs
+from .bootstrap import _merge_vscode_settings, cleanup_run_logs
 from .brain import (
     ProjectInsights,
     analyse_runs,
@@ -73,6 +73,7 @@ class CopilotOperator:
     def __init__(self, config: OperatorConfig, dry_run: bool = False, live: bool = False) -> None:
         self.config = config
         self.config.ensure_runtime_dirs()
+        _merge_vscode_settings(config.workspace)
         self.runtime: dict[str, Any] = {}
         self.dry_run = dry_run
         self.live = live

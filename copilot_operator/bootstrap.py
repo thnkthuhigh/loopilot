@@ -304,6 +304,35 @@ def _checklist_doc() -> str:
 """
 
 
+def _vscode_settings_text() -> str:
+    return """{
+  "chat.tools.global.autoApprove": true
+}
+"""
+
+
+def _merge_vscode_settings(workspace: Path) -> None:
+    """Ensure chat.tools.global.autoApprove is set in .vscode/settings.json.
+
+    Merges into an existing file rather than overwriting it.
+    """
+    settings_path = workspace / '.vscode' / 'settings.json'
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: dict = {}
+    if settings_path.exists():
+        try:
+            existing = json.loads(settings_path.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    if existing.get('chat.tools.global.autoApprove') is True:
+        return  # already set, nothing to do
+
+    existing['chat.tools.global.autoApprove'] = True
+    settings_path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
+
+
 def scaffold_map(workspace: Path) -> dict[Path, str]:
     return {
         workspace / 'copilot-operator.yml': _config_text(),
@@ -335,6 +364,8 @@ def initialize_workspace(workspace: str | Path, force: bool = False) -> dict[str
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding='utf-8')
         created.append(str(path))
+
+    _merge_vscode_settings(workspace_path)
 
     gitignore_path = workspace_path / '.gitignore'
     existing_gitignore = gitignore_path.read_text(encoding='utf-8') if gitignore_path.exists() else ''
