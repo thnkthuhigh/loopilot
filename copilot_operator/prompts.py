@@ -156,11 +156,37 @@ def _parse_tag(pattern: re.Pattern[str], response_text: str, source: str) -> Ass
     return _build_assessment(data, source)
 
 
+def _parse_bare_json_assessment(response_text: str) -> Assessment | None:
+    """Fallback: find a JSON object with 'status' key anywhere in the response.
+
+    Handles cases where the LLM emits valid JSON but forgets the XML wrapper tags.
+    Only accepts objects that contain a 'status' field to avoid false positives.
+    """
+    text = (response_text or '').strip()
+    # Try last JSON code block first, then any {...} with status
+    candidates: list[str] = []
+    for m in re.finditer(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL):
+        candidates.append(m.group(1))
+    for m in re.finditer(r'(\{[^{}]*"status"\s*:[^{}]*\})', text, re.DOTALL):
+        candidates.append(m.group(1))
+    for candidate in reversed(candidates):
+        try:
+            data = json.loads(_strip_code_fence(candidate))
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(data, dict) and 'status' in data:
+            return _build_assessment(data, 'operator_state')
+    return None
+
+
 def parse_operator_state(response_text: str) -> Assessment | None:
     operator_state = _parse_tag(_OPERATOR_STATE_RE, response_text, 'operator_state')
     if operator_state is not None:
         return operator_state
-    return _parse_tag(_SUPERVISOR_AUDIT_RE, response_text, 'supervisor_audit')
+    audit = _parse_tag(_SUPERVISOR_AUDIT_RE, response_text, 'supervisor_audit')
+    if audit is not None:
+        return audit
+    return _parse_bare_json_assessment(response_text)
 
 
 def render_history(history: list[dict[str, Any]], limit: int = 3) -> str:
