@@ -674,7 +674,13 @@ class CopilotOperator:
 
     def _write_runtime(self) -> None:
         self._sync_runtime_paths()
-        dump_json(self.config.state_file, self.runtime)
+        # '_last_decision' holds a Decision dataclass — strip it before serialization
+        last_decision = self.runtime.pop('_last_decision', None)
+        try:
+            dump_json(self.config.state_file, self.runtime)
+        finally:
+            if last_decision is not None:
+                self.runtime['_last_decision'] = last_decision
         self.config.memory_file.write_text(self._render_memory(), encoding='utf-8')
 
     def _sync_runtime_paths(self) -> None:
