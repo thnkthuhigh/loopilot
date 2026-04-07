@@ -1,0 +1,38 @@
+workspace: .
+mode: agent
+goalProfile: default
+maxIterations: 6
+pollIntervalSeconds: 2
+sessionTimeoutSeconds: 900
+quietPeriodPolls: 2
+targetScore: 85
+failOnBlockers:
+  - critical
+  - high
+codeCommandRetries: 2
+codeCommandRetryDelaySeconds: 2
+logRetentionRuns: 20
+memoryFile: .copilot-operator/memory.md
+stateFile: .copilot-operator/state.json
+summaryFile: .copilot-operator/session-summary.json
+logDir: .copilot-operator/logs
+validation:
+  - name: tests
+    command: "npm test"
+    required: true
+    timeoutSeconds: 120
+    runBeforePrompt: true
+    runAfterResponse: true
+  - name: lint
+    command: "npm run lint"
+    required: true
+    timeoutSeconds: 30
+    runBeforePrompt: false
+    runAfterResponse: true
+
+# LLM Brain (optional — API key must be in .env or environment)
+# llm:
+#   provider: openai          # openai | anthropic | gemini | local
+#   model: gpt-4o             # model name (uses provider default if omitted)
+#   maxTokens: 4096
+#   temperature: 0.3

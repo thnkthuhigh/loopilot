@@ -1,0 +1,6 @@
+{
+  "chat.useCustomAgentHooks": true,
+  "chat.agentFilesLocations": [
+    ".github/agents"
+  ]
+}

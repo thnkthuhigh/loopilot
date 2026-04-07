@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "copilot-operator"
+version = "1.0.0"
+description = "Autonomous orchestration loop for GitHub Copilot in VS Code — drives multi-iteration coding sessions with self-correction, learning, and intelligent strategy."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Copilot Operator Contributors"},
+]
+keywords = ["copilot", "operator", "automation", "llm", "vscode", "ai", "autonomous-agent"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4",
+    "pytest>=8.0",
+]
+dotenv = [
+    "python-dotenv>=1.0",
+]
+rich = [
+    "rich>=13.0",
+]
+all = [
+    "python-dotenv>=1.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+copilot-operator = "copilot_operator.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/copilot-operator/copilot-operator"
+Documentation = "https://github.com/copilot-operator/copilot-operator#readme"
+Repository = "https://github.com/copilot-operator/copilot-operator"
+Issues = "https://github.com/copilot-operator/copilot-operator/issues"
+
+[tool.setuptools.packages.find]
+include = ["copilot_operator*"]
+
+[tool.setuptools.package-data]
+copilot_operator = ["py.typed"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests_python"]
+python_files = ["test_*.py"]

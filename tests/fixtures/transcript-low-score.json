@@ -1,0 +1,12 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Audit complete."
+    },
+    {
+      "role": "assistant",
+      "content": "<SUPERVISOR_AUDIT>{\"score\":62,\"readyToStop\":false,\"summary\":\"Feature gap and failing checks remain.\",\"nextDirective\":\"Fix the failing tests, close the highest-value feature gap, and rerun the Auditor.\",\"checks\":{\"tests\":{\"status\":\"fail\",\"evidence\":\"2 tests failing\"},\"lint\":{\"status\":\"fail\",\"evidence\":\"eslint reported 4 errors\"},\"benchmark\":{\"status\":\"stale\",\"evidence\":\"No fresh market comparison in this loop\"}},\"blockers\":[{\"severity\":\"high\",\"title\":\"Regression in signup flow\",\"evidence\":\"The happy-path test is failing\",\"fix\":\"Restore the broken flow and add coverage\"}],\"gaps\":[{\"severity\":\"medium\",\"category\":\"market\",\"title\":\"Missing comparison table\",\"evidence\":\"Competitors expose it in onboarding\",\"nextAction\":\"Add a compact comparison table to the flow\"}]}</SUPERVISOR_AUDIT>"
+    }
+  ]
+}

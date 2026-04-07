@@ -1,0 +1,5 @@
+{"kind":0,"v":{"version":3,"sessionId":"incremental-session","requests":[],"pendingRequests":[]}}
+{"kind":2,"k":["requests"],"v":[{"requestId":"request-continue","confirmation":"Continue","message":{"text":"continue"},"response":[],"result":{},"modelState":{}}]}
+{"kind":2,"k":["requests",0,"response"],"v":[{"value":"Partial work.\n\n<OPERATOR_STATE>\n{\"status\":\"continue\",\"score\":61,\"summary\":\"Made partial progress\",\"next_prompt\":\"Continue fixing the failing tests.\",\"tests\":\"fail\",\"lint\":\"not_run\",\"blockers\":[{\"severity\":\"high\",\"item\":\"Tests still fail\"}],\"needs_continue\":true,\"done_reason\":\"\"}\n</OPERATOR_STATE>"}]}
+{"kind":1,"k":["requests",0,"result"],"v":{"metadata":{"maxToolCallsExceeded":true}}}
+{"kind":1,"k":["requests",0,"modelState"],"v":{"value":1,"completedAt":99999}}

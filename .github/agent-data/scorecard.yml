@@ -1,0 +1,15 @@
+{
+  "targetScore": 85,
+  "maxForcedContinuations": 5,
+  "weights": {
+    "tests": 30,
+    "requirements": 25,
+    "codeQuality": 20,
+    "ux": 10,
+    "market": 15
+  },
+  "blockerSeverities": [
+    "critical",
+    "high"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "schedule": {
+    "runOn": [
+      "sessionStart",
+      "plateau2",
+      "finalAudit"
+    ]
+  },
+  "dimensions": [
+    "featureCoverage",
+    "workflowCoverage",
+    "uxQuality",
+    "qualitySignals",
+    "performanceSignals"
+  ],
+  "sources": [
+    {
+      "id": "primary-competitor",
+      "label": "Primary competitor",
+      "kind": "competitor",
+      "url": "https://example.com/primary-competitor",
+      "enabled": false,
+      "dimensions": [
+        "featureCoverage",
+        "uxQuality"
+      ]
+    },
+    {
+      "id": "secondary-competitor",
+      "label": "Secondary competitor",
+      "kind": "competitor",
+      "url": "https://example.com/secondary-competitor",
+      "enabled": false,
+      "dimensions": [
+        "workflowCoverage",
+        "qualitySignals"
+      ]
+    },
+    {
+      "id": "reference-standard",
+      "label": "Reference standard",
+      "kind": "reference",
+      "url": "https://example.com/reference-standard",
+      "enabled": false,
+      "dimensions": [
+        "performanceSignals",
+        "qualitySignals"
+      ]
+    }
+  ]
+}

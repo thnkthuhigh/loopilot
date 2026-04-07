@@ -1,0 +1,38 @@
+# VS Code / Copilot internal
+.copilot/*
+!.copilot/supervisor/
+.copilot/supervisor/*
+!.copilot/supervisor/.gitkeep
+
+# Node
+node_modules/
+
+# Operator runtime state (local only — contains secrets, logs, session data)
+.copilot-operator/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test / quality tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/

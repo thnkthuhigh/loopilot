@@ -1,0 +1,12 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Audit complete."
+    },
+    {
+      "role": "assistant",
+      "content": "<SUPERVISOR_AUDIT>{\"score\":91,\"readyToStop\":true,\"summary\":\"The implementation meets the target and no blocking issues remain.\",\"nextDirective\":\"\",\"checks\":{\"tests\":{\"status\":\"pass\",\"evidence\":\"All targeted tests are green\"},\"lint\":{\"status\":\"pass\",\"evidence\":\"Lint completed with no issues\"},\"benchmark\":{\"status\":\"pass\",\"evidence\":\"Benchmark notes were refreshed in this loop\"}},\"blockers\":[],\"gaps\":[{\"severity\":\"low\",\"category\":\"ux\",\"title\":\"Minor copy polish remains\",\"evidence\":\"A button label could be shortened\",\"nextAction\":\"Optional polish only\"}]}</SUPERVISOR_AUDIT>"
+    }
+  ]
+}

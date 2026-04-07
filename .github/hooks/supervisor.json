@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node ./.github/hooks/scripts/session-start.cjs",
+        "timeout": 20
+      }
+    ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "node ./.github/hooks/scripts/pre-tool-use.cjs",
+        "timeout": 10
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "node ./.github/hooks/scripts/post-tool-use.cjs",
+        "timeout": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "local-copilot-supervisor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace scaffold for a local GitHub Copilot supervisor loop in VS Code agent mode plus an external Copilot operator.",
+  "scripts": {
+    "test": "node --test tests/hooks.test.cjs && python -m unittest discover -s tests_python -p \"test_*.py\"",
+    "lint": "python -m ruff check copilot_operator/ tests_python/",
+    "supervisor:doctor": "node ./.github/hooks/scripts/doctor.cjs",
+    "supervisor:state": "node ./.github/hooks/scripts/print-state.cjs",
+    "operator:doctor": "python -m copilot_operator doctor",
+    "operator:run": "python -m copilot_operator run",
+    "operator:resume": "python -m copilot_operator resume",
+    "operator:init": "python -m copilot_operator init",
+    "operator:status": "python -m copilot_operator status",
+    "operator:plan": "python -m copilot_operator plan",
+    "operator:focus": "python -m copilot_operator focus",
+    "operator:watch": "python -m copilot_operator watch",
+    "operator:cleanup": "python -m copilot_operator cleanup",
+    "operator:brain": "python -m copilot_operator brain",
+    "operator:version": "python -m copilot_operator version"
+  }
+}
