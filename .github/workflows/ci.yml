@@ -40,7 +40,7 @@ jobs:
           node-version: "22"
 
       - name: Install Node dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Node tests
         run: node --test tests/hooks.test.cjs
