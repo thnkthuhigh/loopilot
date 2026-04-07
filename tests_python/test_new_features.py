@@ -429,5 +429,79 @@ class TestCheckProtectedPaths(unittest.TestCase):
             self.assertEqual(check_protected_paths(wp, ['secret.env', 'config/']), [])
 
 
+# ---------------------------------------------------------------------------
+# _merge_vscode_settings
+# ---------------------------------------------------------------------------
+from copilot_operator.bootstrap import _PREFERRED_MODELS, _merge_vscode_settings
+
+
+class TestMergeVscodeSettings(unittest.TestCase):
+    def _run(self, workspace: Path) -> dict:
+        import json
+        _merge_vscode_settings(workspace)
+        settings_path = workspace / '.vscode' / 'settings.json'
+        return json.loads(settings_path.read_text(encoding='utf-8'))
+
+    def test_creates_settings_file_if_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            settings = self._run(ws)
+            self.assertTrue(settings.get('chat.tools.global.autoApprove'))
+            self.assertIn(settings.get('github.copilot.chat.preferredModel'), _PREFERRED_MODELS)
+
+    def test_merges_into_existing_file(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            vscode = ws / '.vscode'
+            vscode.mkdir()
+            (vscode / 'settings.json').write_text(
+                json.dumps({'editor.fontSize': 14}), encoding='utf-8'
+            )
+            settings = self._run(ws)
+            self.assertEqual(settings.get('editor.fontSize'), 14)
+            self.assertTrue(settings.get('chat.tools.global.autoApprove'))
+
+    def test_idempotent_when_already_set(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            vscode = ws / '.vscode'
+            vscode.mkdir()
+            initial = {
+                'chat.tools.global.autoApprove': True,
+                'github.copilot.chat.preferredModel': _PREFERRED_MODELS[0],
+            }
+            path = vscode / 'settings.json'
+            path.write_text(json.dumps(initial), encoding='utf-8')
+            mtime_before = path.stat().st_mtime
+            _merge_vscode_settings(ws)
+            # File should not be rewritten when nothing changed
+            self.assertEqual(path.stat().st_mtime, mtime_before)
+
+    def test_overwrites_unknown_model(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            vscode = ws / '.vscode'
+            vscode.mkdir()
+            (vscode / 'settings.json').write_text(
+                json.dumps({'github.copilot.chat.preferredModel': 'some-random-model'}),
+                encoding='utf-8',
+            )
+            settings = self._run(ws)
+            self.assertIn(settings.get('github.copilot.chat.preferredModel'), _PREFERRED_MODELS)
+
+    def test_handles_corrupt_json_gracefully(self):
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            vscode = ws / '.vscode'
+            vscode.mkdir()
+            (vscode / 'settings.json').write_text('{corrupt', encoding='utf-8')
+            # Should not raise; should write fresh settings
+            settings = self._run(ws)
+            self.assertTrue(settings.get('chat.tools.global.autoApprove'))
+
+
 if __name__ == '__main__':
     unittest.main()

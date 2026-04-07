@@ -65,6 +65,21 @@ def _doctor(config_path: str | None, workspace_override: str | None) -> int:
     except ImportError:
         issues.append('pyyaml not installed — run: pip install pyyaml')
 
+    # Node.js availability (required for hooks)
+    import shutil as _shutil
+    import subprocess as _subprocess
+    _node = _shutil.which('node')
+    if _node:
+        try:
+            _node_ver = _subprocess.run(
+                ['node', '--version'], capture_output=True, text=True, timeout=10, check=False
+            )
+            checks.append(f'node.js available: {_node_ver.stdout.strip()}')
+        except Exception:
+            checks.append('node.js found on PATH (version check failed)')
+    else:
+        issues.append('node.js not found on PATH — hooks (.github/hooks/scripts/*.cjs) will not run; install Node.js >= 18')
+
     try:
         version = run_code_command(['--version'], cwd=config.workspace, timeout_seconds=60)
         checks.append(f"code.cmd available: {version.stdout.splitlines()[0]}")

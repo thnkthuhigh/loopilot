@@ -311,6 +311,127 @@ def _vscode_settings_text() -> str:
 """
 
 
+def _agent_supervisor_text() -> str:
+    return """---
+name: Supervisor
+description: "Use when you want an autonomous local supervisor loop for GitHub Copilot agent mode: research, implement, audit, continue, score progress, and decide the next directive."
+argument-hint: "State the goal, constraints, and current progress"
+tools: [agent, read, search, web, todo]
+agents: [Researcher, Implementer, Auditor]
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
+---
+You are the top-level local supervisor for this workspace.
+
+## Mission
+
+Drive a repeating `Research -> Implement -> Audit` loop until the task is genuinely ready to stop or the work is clearly blocked.
+
+## Operating Rules
+
+1. Do not make direct code edits yourself. Delegate implementation to `Implementer`.
+2. Start with `Researcher` when requirements, repo patterns, or market comparisons are unclear or stale.
+3. Always end a loop with `Auditor`.
+4. If the latest audit says the score is below target or blockers remain, continue immediately using `nextDirective`.
+5. Never finish with a generic "done" if the audit still shows real gaps.
+
+## Expected Loop
+
+1. Gather repo and benchmark context with `Researcher`.
+2. Give `Implementer` one concrete directive at a time.
+3. Call `Auditor` to score the result.
+4. If needed, start another loop using the Auditor's `nextDirective`.
+
+## Final Output
+
+When the work is ready to stop, produce a short human summary followed by the final Auditor tag.
+"""
+
+
+def _agent_implementer_text() -> str:
+    return """---
+name: Implementer
+description: "Focused code-changing agent for the supervisor loop. Use for concrete edits, local validation, and fixing the next directive from the audit."
+tools: [read, search, edit, execute, todo]
+user-invocable: false
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
+---
+You are the implementation subagent for the supervisor loop.
+
+## Scope
+
+- Make only the concrete code changes needed for the current directive.
+- Run targeted checks after your edits when possible.
+- Do not merge, deploy, publish, or push remote changes.
+
+## Output
+
+End with this exact tag:
+
+<SUPERVISOR_IMPLEMENTATION>{"summary":"","filesTouched":[],"checksRun":[],"openRisks":[]}</SUPERVISOR_IMPLEMENTATION>
+"""
+
+
+def _agent_researcher_text() -> str:
+    return """---
+name: Researcher
+description: "Read-only repo and market researcher for the supervisor loop. Use for codebase pattern discovery, benchmark web research, missing requirements, or gap identification."
+tools: [read, search, web]
+user-invocable: false
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
+---
+You are the research subagent for the supervisor loop.
+
+## Scope
+
+- Inspect the local codebase and project shape.
+- Identify relevant patterns, constraints, and likely implementation seams.
+- Do not edit files.
+
+## Output
+
+Return a concise summary followed by:
+
+<SUPERVISOR_RESEARCH>{"repoPatterns":[],"marketFindings":[],"gaps":[],"recommendedFocus":""}</SUPERVISOR_RESEARCH>
+"""
+
+
+def _agent_auditor_text() -> str:
+    return """---
+name: Auditor
+description: "Score and review agent for the supervisor loop. Use for self-review, blocker detection, stop-readiness checks, benchmark freshness, and next-directive generation."
+tools: [read, search, execute, web]
+user-invocable: false
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
+---
+You are the audit subagent for the supervisor loop.
+
+## Your Job
+
+- Score the current state against the configured rubric.
+- Identify remaining blockers and gaps.
+- Decide whether the work is truly ready to stop.
+- If not ready, give one clear next directive for the Implementer.
+
+## Output
+
+Return a brief summary, then emit:
+
+<SUPERVISOR_AUDIT>{"score":0,"readyToStop":false,"summary":"","nextDirective":"","checks":{"tests":{"status":"unknown","evidence":""},"lint":{"status":"unknown","evidence":""},"benchmark":{"status":"unknown","evidence":""}},"blockers":[],"gaps":[]}</SUPERVISOR_AUDIT>
+"""
+
+
 _PREFERRED_MODELS = [
     'Claude Opus 4.5 (copilot)',
     'Claude Sonnet 4.5 (copilot)',
@@ -340,7 +461,9 @@ def _merge_vscode_settings(workspace: Path) -> None:
     if existing.get('chat.tools.global.autoApprove') is not True:
         existing['chat.tools.global.autoApprove'] = True
         changed = True
-    if 'github.copilot.chat.preferredModel' not in existing:
+    # Always overwrite if value is not in our known-good list (e.g. differs from what we want)
+    current_model = existing.get('github.copilot.chat.preferredModel', '')
+    if current_model not in _PREFERRED_MODELS:
         existing['github.copilot.chat.preferredModel'] = _PREFERRED_MODELS[0]
         changed = True
 
@@ -361,6 +484,10 @@ def scaffold_map(workspace: Path) -> dict[Path, str]:
         workspace / 'docs' / 'operator' / 'known-traps.md': _known_traps_doc(),
         workspace / 'docs' / 'COPILOT_OPERATOR_GOAL_TEMPLATES.md': _goal_templates_doc(),
         workspace / 'docs' / 'COPILOT_OPERATOR_QUICK_CHECKLIST.md': _checklist_doc(),
+        workspace / '.github' / 'agents' / 'supervisor.agent.md': _agent_supervisor_text(),
+        workspace / '.github' / 'agents' / 'implementer.agent.md': _agent_implementer_text(),
+        workspace / '.github' / 'agents' / 'researcher.agent.md': _agent_researcher_text(),
+        workspace / '.github' / 'agents' / 'auditor.agent.md': _agent_auditor_text(),
     }
 
 
@@ -384,7 +511,7 @@ def initialize_workspace(workspace: str | Path, force: bool = False) -> dict[str
 
     gitignore_path = workspace_path / '.gitignore'
     existing_gitignore = gitignore_path.read_text(encoding='utf-8') if gitignore_path.exists() else ''
-    required_entries = ['.copilot-operator/', '__pycache__/']
+    required_entries = ['.copilot-operator/', '__pycache__/', '.vscode/']
     missing_entries = [entry for entry in required_entries if entry not in existing_gitignore.splitlines()]
     if missing_entries:
         prefix = '' if not existing_gitignore or existing_gitignore.endswith('\n') else '\n'
@@ -444,6 +571,16 @@ def read_operator_status(state_file: str | Path, summary_file: str | Path) -> di
     history = state.get('history') or []
     last = history[-1] if history else {}
     plan = summarize_plan(state.get('plan', {}))
+
+    # Read preferred model from .vscode/settings.json relative to the state file
+    preferred_model = ''
+    try:
+        settings_path = state_path.parent.parent / '.vscode' / 'settings.json'
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text(encoding='utf-8'))
+            preferred_model = settings.get('github.copilot.chat.preferredModel', '')
+    except (OSError, json.JSONDecodeError):
+        pass
     return {
         'stateFile': str(state_path),
         'summaryFile': str(summary_path),
@@ -477,6 +614,7 @@ def read_operator_status(state_file: str | Path, summary_file: str | Path) -> di
         'finalReason': state.get('finalReason', ''),
         'finalReasonCode': state.get('finalReasonCode', ''),
         'logCleanup': state.get('logCleanup', {}),
+        'preferredModel': preferred_model,
         'latestSummary': summary,
     }
 

@@ -208,3 +208,31 @@ def snapshot_summary(manager: SnapshotManager) -> str:
         lines.append(f'\nBest: iteration {manager.last_good_iteration} (score {manager.last_good_score})')
 
     return '\n'.join(lines)
+
+
+def cleanup_operator_stashes(dry_run: bool = False) -> int:
+    """Drop all git stashes created by the operator (prefix: operator-snapshot-).
+
+    Call this at the start of a new run to prevent stash accumulation.
+    Returns count of stashes dropped.
+    """
+    rc, output = _run_git('stash', 'list')
+    if rc != 0 or not output:
+        return 0
+
+    dropped = 0
+    # Collect refs in reverse order so indices stay valid after dropping
+    refs_to_drop: list[str] = []
+    for line in output.splitlines():
+        if 'operator-snapshot-' in line:
+            # Format: "stash@{N}: ..."
+            ref = line.split(':')[0].strip()
+            refs_to_drop.append(ref)
+
+    # Drop from highest index to lowest to preserve indices
+    for ref in sorted(refs_to_drop, key=lambda r: int(r.split('{')[1].rstrip('}')), reverse=True):
+        if not dry_run:
+            _run_git('stash', 'drop', ref)
+        dropped += 1
+
+    return dropped

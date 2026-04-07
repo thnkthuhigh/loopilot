@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from .adversarial import build_critic_prompt, should_run_critic
-from .bootstrap import _merge_vscode_settings, cleanup_run_logs
+from .bootstrap import _merge_vscode_settings, cleanup_run_logs  # noqa: F401
 from .brain import (
     ProjectInsights,
     analyse_runs,
@@ -47,7 +47,14 @@ from .reasoning import Diagnosis, diagnose, format_diagnosis_for_prompt
 from .repo_inspector import as_dict
 from .repo_ops import check_protected_paths, create_operator_commit, get_diff_summary, is_git_repo, pre_run_safety_check
 from .session_store import extract_response_text, get_latest_request, request_needs_continue
-from .snapshot import SnapshotManager, should_rollback, should_snapshot, snapshot_summary, take_snapshot
+from .snapshot import (
+    SnapshotManager,
+    cleanup_operator_stashes,
+    should_rollback,
+    should_snapshot,
+    snapshot_summary,
+    take_snapshot,
+)
 from .terminal import bold, cyan, dim, score_color, status_badge
 from .validation import dump_json, run_validations
 from .vscode_chat import (
@@ -100,11 +107,21 @@ class CopilotOperator:
         logger.info('Starting run: goal=%r dry_run=%s iterations=%d-%d',
                      goal_text[:80], self.dry_run, iteration_start, self.config.max_iterations)
 
+        # Clean up any leftover operator stashes from a previous interrupted run
+        if not resume:
+            dropped = cleanup_operator_stashes()
+            if dropped:
+                logger.info('Cleaned up %d leftover operator stash(es)', dropped)
+
+        error_retry_count = 0
+        _MAX_ERROR_RETRIES = 3
+
         for iteration in range(iteration_start, self.config.max_iterations + 1):
             try:
                 result = self._run_iteration(iteration, goal_text, decision, chat_dir)
                 if result is not None:
                     return result
+                error_retry_count = 0  # reset on successful iteration
                 decision = self.runtime['_last_decision']
             except KeyboardInterrupt:
                 logger.warning('Interrupted at iteration %d', iteration)
@@ -123,13 +140,13 @@ class CopilotOperator:
                     'timestamp': self._now(),
                 })
                 self._write_runtime()
-                # Allow up to 2 consecutive errors before stopping
-                recent_errors = [e for e in self.runtime.get('errors', []) if e.get('iteration', 0) >= iteration - 1]
-                if len(recent_errors) >= 2:
-                    logger.error('Stopping after %d consecutive errors', len(recent_errors))
+                # Allow up to _MAX_ERROR_RETRIES consecutive errors before stopping
+                error_retry_count += 1
+                if error_retry_count >= _MAX_ERROR_RETRIES:
+                    logger.error('Stopping after %d consecutive errors', error_retry_count)
                     self.runtime['status'] = 'error'
                     self.runtime['finishedAt'] = self._now()
-                    self.runtime['finalReason'] = f'Stopped after consecutive errors: {exc}'
+                    self.runtime['finalReason'] = f'Stopped after {error_retry_count} consecutive errors: {exc}'
                     self.runtime['finalReasonCode'] = 'CONSECUTIVE_ERRORS'
                     self._write_runtime()
                     return {
@@ -139,8 +156,8 @@ class CopilotOperator:
                         'iterations': iteration,
                         'stateFile': str(self.config.state_file),
                     }
-                # Single error — try to continue
-                logger.info('Attempting to continue after error')
+                # Not yet at limit — try to continue without consuming another progress iteration
+                logger.info('Attempting to continue after error (%d/%d)', error_retry_count, _MAX_ERROR_RETRIES)
                 decision = Decision(
                     action='continue',
                     reason=f'Retrying after error: {exc}',

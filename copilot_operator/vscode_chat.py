@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import time
@@ -125,7 +126,14 @@ def wait_for_completed_session(session_path: Path, config: OperatorConfig) -> di
         else:
             quiet_rounds += 1
 
-        latest_session = load_chat_session(session_path)
+        try:
+            session = load_chat_session(session_path)
+        except (ValueError, json.JSONDecodeError, OSError):
+            # File may be in the middle of being written; skip and retry
+            time.sleep(config.poll_interval_seconds)
+            continue
+
+        latest_session = session
         latest_request = get_latest_request(latest_session)
         if latest_request and request_completed(latest_session, latest_request) and quiet_rounds >= config.quiet_period_polls:
             return latest_session
