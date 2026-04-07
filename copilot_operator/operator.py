@@ -562,9 +562,21 @@ class CopilotOperator:
         ]
 
         if assessment.status == 'blocked':
+            if iteration >= self.config.max_iterations:
+                return Decision(
+                    action='stop',
+                    reason=assessment.done_reason or 'Copilot reported a blocking condition.',
+                    reason_code='COPILOT_BLOCKED',
+                )
             return Decision(
-                action='stop',
-                reason=assessment.done_reason or 'Copilot reported a blocking condition.',
+                action='continue',
+                reason='Copilot did not emit a structured OPERATOR_STATE block — retrying with explicit format reminder.',
+                next_prompt=(
+                    'You must end your response with a valid OPERATOR_STATE block in exactly this format:\n\n'
+                    '<OPERATOR_STATE>\n{"status":"done","score":90,"summary":"...","blockers":[],"tests":"pass","lint":"pass"}\n</OPERATOR_STATE>\n\n'
+                    'If the task is already complete, report status="done" with what you did. '
+                    'If there is still work to do, status="in_progress". Do not omit the block.'
+                ),
                 reason_code='COPILOT_BLOCKED',
             )
 
