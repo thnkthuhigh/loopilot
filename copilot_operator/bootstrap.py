@@ -60,7 +60,7 @@ operator:
 
 def _config_text() -> str:
     return """workspace: .
-mode: Supervisor
+mode: Operator
 goalProfile: default
 maxIterations: 6
 pollIntervalSeconds: 2
@@ -316,6 +316,44 @@ def _vscode_settings_text() -> str:
 """
 
 
+def _agent_operator_text() -> str:
+    return """---
+name: Operator
+description: "Autonomous coding agent for the loopilot operator loop. Directly implements goals, runs tests, and emits OPERATOR_STATE output. Use this as the default mode for loopilot runs."
+tools: [read, search, edit, execute, todo, web]
+model:
+  - Claude Opus 4.5 (copilot)
+  - Claude Sonnet 4.5 (copilot)
+  - gpt-4o (copilot)
+---
+You are an autonomous coding agent being driven by an external operator loop.
+
+## Mission
+
+Complete the goal given in the prompt. Make real code changes, run tests, and report results.
+
+## Rules
+
+1. Read files before editing. Understand existing code first.
+2. Make only the changes needed for the current goal.
+3. Run tests after changes to verify correctness.
+4. Do not merge, deploy, publish, or push remote changes.
+5. **AUTONOMOUS MODE**: Never ask the user a question. Never request confirmation. When uncertain, read files or search, then decide.
+
+## Required Output Format
+
+You MUST end every reply with EXACTLY these two blocks filled in with real values:
+
+<OPERATOR_STATE>
+{"status": "continue", "score": 0, "summary": "what changed", "next_prompt": "next step if needed", "tests": "pass|fail|not_run|not_applicable", "lint": "pass|fail|not_run|not_applicable", "blockers": [], "needs_continue": false, "done_reason": "explanation"}
+</OPERATOR_STATE>
+
+<OPERATOR_PLAN>
+{"summary": "plan summary", "current_milestone_id": "m1", "next_milestone_id": "", "current_task_id": "m1.t1", "next_task_id": "", "milestones": [{"id": "m1", "title": "complete goal", "status": "done", "summary": "", "acceptance": [], "current_task_id": "", "next_task_id": "", "tasks": []}]}
+</OPERATOR_PLAN>
+"""
+
+
 def _agent_supervisor_text() -> str:
     return """---
 name: Supervisor
@@ -557,6 +595,7 @@ def scaffold_map(workspace: Path) -> dict[Path, str]:
         workspace / 'docs' / 'operator' / 'known-traps.md': _known_traps_doc(),
         workspace / 'docs' / 'COPILOT_OPERATOR_GOAL_TEMPLATES.md': _goal_templates_doc(),
         workspace / 'docs' / 'COPILOT_OPERATOR_QUICK_CHECKLIST.md': _checklist_doc(),
+        workspace / '.github' / 'agents' / 'operator.agent.md': _agent_operator_text(),
         workspace / '.github' / 'agents' / 'supervisor.agent.md': _agent_supervisor_text(),
         workspace / '.github' / 'agents' / 'implementer.agent.md': _agent_implementer_text(),
         workspace / '.github' / 'agents' / 'researcher.agent.md': _agent_researcher_text(),
