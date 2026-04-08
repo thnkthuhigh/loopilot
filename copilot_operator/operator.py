@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json as _json
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +60,8 @@ from .snapshot import (
 from .terminal import bold, cyan, dim, score_color, status_badge
 from .validation import dump_json, run_validations
 from .vscode_chat import (
+    VSCodeChatError,
+    VSCodeChatRetryableError,
     ensure_workspace_storage,
     send_chat_prompt,
     snapshot_chat_sessions,
@@ -66,6 +70,26 @@ from .vscode_chat import (
 )
 
 logger = get_logger('operator')
+
+# --- Error classification ---
+
+_FATAL_EXCEPTIONS = (FileNotFoundError, PermissionError, NotADirectoryError)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Return True if the error is transient and worth retrying."""
+    if isinstance(exc, _FATAL_EXCEPTIONS):
+        return False
+    if isinstance(exc, VSCodeChatRetryableError):
+        return True
+    if isinstance(exc, VSCodeChatError):
+        # Non-retryable VSCode errors (config, missing binary)
+        return False
+    # json parse errors from LLM output quirks are retryable
+    if isinstance(exc, (_json.JSONDecodeError, ValueError, KeyError)):
+        return True
+    # Default: treat unknown errors as retryable
+    return True
 
 
 @dataclass(slots=True)
@@ -114,7 +138,8 @@ class CopilotOperator:
                 logger.info('Cleaned up %d leftover operator stash(es)', dropped)
 
         error_retry_count = 0
-        _MAX_ERROR_RETRIES = 3
+        _MAX_ERROR_RETRIES = self.config.max_error_retries
+        _BACKOFF_BASE = self.config.error_backoff_base_seconds
 
         for iteration in range(iteration_start, self.config.max_iterations + 1):
             try:
@@ -132,18 +157,41 @@ class CopilotOperator:
                 self._write_runtime()
                 raise
             except Exception as exc:
-                logger.error('Error in iteration %d: %s', iteration, exc, exc_info=True)
+                retryable = _is_retryable(exc)
+                error_type = type(exc).__name__
+                logger.error('Error in iteration %d (%s, retryable=%s): %s', iteration, error_type, retryable, exc, exc_info=True)
                 self.runtime.setdefault('errors', []).append({
                     'iteration': iteration,
                     'error': str(exc),
-                    'type': type(exc).__name__,
+                    'type': error_type,
+                    'retryable': retryable,
                     'timestamp': self._now(),
                 })
                 self._write_runtime()
-                # Allow up to _MAX_ERROR_RETRIES consecutive errors before stopping
+
+                # Fatal errors stop immediately
+                if not retryable:
+                    logger.error('Fatal error (non-retryable), stopping run.')
+                    self.runtime['status'] = 'error'
+                    self.runtime['finishedAt'] = self._now()
+                    self.runtime['finalReason'] = f'Fatal error: {exc}'
+                    self.runtime['finalReasonCode'] = 'FATAL_ERROR'
+                    self.runtime['pendingDecision'] = None
+                    self._write_runtime()
+                    return {
+                        'status': 'error',
+                        'reason': str(exc),
+                        'reasonCode': 'FATAL_ERROR',
+                        'errorType': error_type,
+                        'retryable': False,
+                        'iterations': iteration,
+                        'stateFile': str(self.config.state_file),
+                    }
+
+                # Retryable error — apply backoff
                 error_retry_count += 1
                 if error_retry_count >= _MAX_ERROR_RETRIES:
-                    logger.error('Stopping after %d consecutive errors', error_retry_count)
+                    logger.error('Stopping after %d consecutive retryable errors', error_retry_count)
                     self.runtime['status'] = 'error'
                     self.runtime['finishedAt'] = self._now()
                     self.runtime['finalReason'] = f'Stopped after {error_retry_count} consecutive errors: {exc}'
@@ -162,12 +210,21 @@ class CopilotOperator:
                         'iterations': iteration,
                         'stateFile': str(self.config.state_file),
                     }
-                # Not yet at limit — try to continue without consuming another progress iteration
-                logger.info('Attempting to continue after error (%d/%d)', error_retry_count, _MAX_ERROR_RETRIES)
+
+                # Backoff delay: 2, 4, 8, ... capped at 30s
+                delay = min(_BACKOFF_BASE ** error_retry_count, 30.0)
+                logger.info('Backoff %.1fs before retry (%d/%d)', delay, error_retry_count, _MAX_ERROR_RETRIES)
+                time.sleep(delay)
+
+                # Session reset hint after 2+ consecutive errors
+                session_hint = ''
+                if error_retry_count >= 2:
+                    session_hint = '\n\nPrevious session had errors. Start fresh analysis of the workspace.'
+
                 decision = Decision(
                     action='continue',
                     reason=f'Retrying after error: {exc}',
-                    next_prompt=decision.next_prompt,
+                    next_prompt=decision.next_prompt + session_hint,
                     reason_code='RETRY_AFTER_ERROR',
                 )
                 continue

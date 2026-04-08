@@ -56,6 +56,8 @@ class OperatorConfig:
     fail_on_blockers: list[str] = field(default_factory=lambda: ['critical', 'high'])
     code_command_retries: int = 2
     code_command_retry_delay_seconds: float = 2.0
+    max_error_retries: int = 3
+    error_backoff_base_seconds: float = 2.0
     log_retention_runs: int = 20
     memory_file: Path = Path('.copilot-operator/memory.md')
     state_file: Path = Path('.copilot-operator/state.json')
@@ -234,6 +236,8 @@ def load_config(path: str | Path | None = None, workspace_override: str | Path |
         fail_on_blockers=[str(item).lower() for item in merged_raw.get('failOnBlockers', merged_raw.get('fail_on_blockers', ['critical', 'high']))],
         code_command_retries=int(merged_raw.get('codeCommandRetries', merged_raw.get('code_command_retries', 2))),
         code_command_retry_delay_seconds=float(merged_raw.get('codeCommandRetryDelaySeconds', merged_raw.get('code_command_retry_delay_seconds', 2.0))),
+        max_error_retries=int(merged_raw.get('maxErrorRetries', merged_raw.get('max_error_retries', 3))),
+        error_backoff_base_seconds=float(merged_raw.get('errorBackoffBaseSeconds', merged_raw.get('error_backoff_base_seconds', 2.0))),
         log_retention_runs=int(merged_raw.get('logRetentionRuns', merged_raw.get('log_retention_runs', 20))),
         memory_file=_resolve_config_path(workspace, merged_raw.get('memoryFile'), '.copilot-operator/memory.md'),
         state_file=_resolve_config_path(workspace, merged_raw.get('stateFile'), '.copilot-operator/state.json'),
