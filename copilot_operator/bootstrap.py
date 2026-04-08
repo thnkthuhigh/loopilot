@@ -448,27 +448,24 @@ _PREFERRED_MODELS = [
 ]
 
 
-def _merge_vscode_settings(workspace: Path) -> None:
-    """Ensure required VS Code chat settings are set in .vscode/settings.json.
+def _vscode_user_settings_path() -> Path | None:
+    """Return the VS Code user settings.json path for the current OS."""
+    import os
+    if sys.platform == 'win32':
+        appdata = os.environ.get('APPDATA')
+        if appdata:
+            return Path(appdata) / 'Code' / 'User' / 'settings.json'
+    elif sys.platform == 'darwin':
+        return Path.home() / 'Library' / 'Application Support' / 'Code' / 'User' / 'settings.json'
+    else:
+        xdg = os.environ.get('XDG_CONFIG_HOME')
+        base = Path(xdg) if xdg else Path.home() / '.config'
+        return base / 'Code' / 'User' / 'settings.json'
+    return None
 
-    Merges into an existing file rather than overwriting it.
-    Sets:
-    - chat.tools.global.autoApprove: true          (skip per-tool Allow prompts)
-    - chat.autopilot.enabled: true                  (enable Autopilot permission level)
-    - chat.tools.terminal.enableAutoApprove: true   (auto-approve terminal commands)
-    - chat.tools.edits.autoApprove: {"**": true}    (auto-approve all file edits)
-    - github.copilot.chat.preferredModel            (consistent model across machines)
-    """
-    settings_path = workspace / '.vscode' / 'settings.json'
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing: dict = {}
-    if settings_path.exists():
-        try:
-            existing = json.loads(settings_path.read_text(encoding='utf-8'))
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-
+def _apply_auto_approve_keys(existing: dict) -> bool:
+    """Inject the auto-approve keys into a settings dict. Returns True if anything changed."""
     changed = False
     if existing.get('chat.tools.global.autoApprove') is not True:
         existing['chat.tools.global.autoApprove'] = True
@@ -482,14 +479,51 @@ def _merge_vscode_settings(workspace: Path) -> None:
     if existing.get('chat.tools.edits.autoApprove') != {'**': True}:
         existing['chat.tools.edits.autoApprove'] = {'**': True}
         changed = True
-    # Always overwrite if value is not in our known-good list (e.g. differs from what we want)
-    current_model = existing.get('github.copilot.chat.preferredModel', '')
-    if current_model not in _PREFERRED_MODELS:
-        existing['github.copilot.chat.preferredModel'] = _PREFERRED_MODELS[0]
-        changed = True
+    return changed
 
-    if changed:
-        settings_path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
+
+def _merge_vscode_settings(workspace: Path) -> None:
+    """Ensure required VS Code chat settings are set in both workspace and user settings.
+
+    Machine-scoped settings (autoApprove, enableAutoApprove) are ignored by VS Code
+    when placed in .vscode/settings.json — they must live in the user-level settings
+    file to take effect. This function writes to both locations.
+
+    Settings applied:
+    - chat.tools.global.autoApprove: true          (skip per-tool Allow prompts)
+    - chat.autopilot.enabled: true                  (enable Autopilot permission level)
+    - chat.tools.terminal.enableAutoApprove: true   (auto-approve terminal commands)
+    - chat.tools.edits.autoApprove: {"**": true}    (auto-approve all file edits)
+    - github.copilot.chat.preferredModel            (workspace settings only)
+    """
+    # 1. Workspace settings (.vscode/settings.json) — for visibility/documentation
+    ws_path = workspace / '.vscode' / 'settings.json'
+    ws_path.parent.mkdir(parents=True, exist_ok=True)
+    ws_existing: dict = {}
+    if ws_path.exists():
+        try:
+            ws_existing = json.loads(ws_path.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            ws_existing = {}
+    ws_changed = _apply_auto_approve_keys(ws_existing)
+    current_model = ws_existing.get('github.copilot.chat.preferredModel', '')
+    if current_model not in _PREFERRED_MODELS:
+        ws_existing['github.copilot.chat.preferredModel'] = _PREFERRED_MODELS[0]
+        ws_changed = True
+    if ws_changed:
+        ws_path.write_text(json.dumps(ws_existing, indent=2) + '\n', encoding='utf-8')
+
+    # 2. VS Code user settings — machine-scoped keys only work here
+    user_path = _vscode_user_settings_path()
+    if user_path and user_path.parent.exists():
+        user_existing: dict = {}
+        if user_path.exists():
+            try:
+                user_existing = json.loads(user_path.read_text(encoding='utf-8'))
+            except (json.JSONDecodeError, OSError):
+                user_existing = {}
+        if _apply_auto_approve_keys(user_existing):
+            user_path.write_text(json.dumps(user_existing, indent=2) + '\n', encoding='utf-8')
 
 
 def scaffold_map(workspace: Path) -> dict[Path, str]:
