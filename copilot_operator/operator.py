@@ -47,7 +47,14 @@ from .prompts import (
 )
 from .reasoning import Diagnosis, diagnose, format_diagnosis_for_prompt
 from .repo_inspector import as_dict
-from .repo_ops import check_protected_paths, create_operator_commit, get_diff_summary, is_git_repo, pre_run_safety_check
+from .repo_ops import (
+    check_protected_paths,
+    create_operator_commit,
+    get_all_changed_files,
+    get_diff_summary,
+    is_git_repo,
+    pre_run_safety_check,
+)
 from .session_store import extract_response_text, get_latest_request, request_needs_continue
 from .snapshot import (
     SnapshotManager,
@@ -293,6 +300,14 @@ class CopilotOperator:
 
         baseline = snapshot_chat_sessions(chat_dir)
         attachment_paths = [self.config.memory_file, *self._existing_project_memory_files()]
+
+        # On iteration 2+, attach previously changed files so Copilot has fresh context
+        if iteration > 1:
+            for rel_path in self.runtime.get('allChangedFiles', [])[:20]:
+                abs_path = self.config.workspace / rel_path
+                if abs_path.exists() and abs_path.is_file() and abs_path.stat().st_size < 50_000:
+                    attachment_paths.append(abs_path)
+
         send_chat_prompt(self.config, prompt, add_files=attachment_paths)
         session_path = wait_for_session_file(chat_dir, baseline, self.config.session_timeout_seconds, self.config.poll_interval_seconds)
         session = wait_for_completed_session(session_path, self.config)
@@ -448,6 +463,17 @@ class CopilotOperator:
         self.runtime['lastResponsePath'] = str(response_path)
         self.runtime['lastPromptPath'] = str(prompt_path)
         self.runtime['updatedAt'] = self._now()
+
+        # Track changed files for context enrichment in subsequent iterations
+        try:
+            changed = get_all_changed_files(self.config.workspace)
+            record['changedFiles'] = changed
+            all_changed = set(self.runtime.get('allChangedFiles', []))
+            all_changed.update(changed)
+            self.runtime['allChangedFiles'] = sorted(all_changed)
+        except Exception:
+            pass
+
         self.runtime['pendingDecision'] = {
             'action': decision.action,
             'reason': decision.reason,
@@ -869,6 +895,15 @@ class CopilotOperator:
                     lines.append(brain_text)
             return '\n'.join(lines) + '\n'
 
+        # Changed files summary
+        all_changed = self.runtime.get('allChangedFiles', [])
+        if all_changed:
+            lines.extend(['', '## Files Changed Across Iterations'])
+            for f in all_changed[:30]:
+                lines.append(f'- {f}')
+            if len(all_changed) > 30:
+                lines.append(f'- ... and {len(all_changed) - 30} more')
+
         for item in history[-5:]:
             summary = str(item.get('summary', ''))[:200]
             next_prompt = str(item.get('next_prompt', ''))[:200]
@@ -896,6 +931,11 @@ class CopilotOperator:
                 lines.append('- Blockers:')
                 for blocker in blockers:
                     lines.append(f"  - {blocker.get('severity', 'unknown')}: {blocker.get('item', '')}")
+            changed_files = item.get('changedFiles') or []
+            if changed_files:
+                lines.append(f'- Changed files: {", ".join(changed_files[:10])}')
+                if len(changed_files) > 10:
+                    lines.append(f'  ... and {len(changed_files) - 10} more')
             validations = item.get('validation_after') or []
             if validations:
                 lines.append('- Operator validations after response:')
