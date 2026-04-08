@@ -144,6 +144,33 @@ def _build_assessment(data: dict[str, Any], source: str) -> Assessment:
     )
 
 
+def _sanitize_json_payload(payload: str) -> str:
+    """Replace bare (unescaped) newlines inside JSON string values with spaces.
+
+    LLMs sometimes emit literal newlines inside JSON string fields, which is
+    invalid.  We scan character-by-character and replace such newlines with
+    a space so that json.loads can succeed.
+    """
+    result: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in payload:
+        if escaped:
+            result.append(ch)
+            escaped = False
+        elif ch == '\\' and in_string:
+            result.append(ch)
+            escaped = True
+        elif ch == '"':
+            in_string = not in_string
+            result.append(ch)
+        elif in_string and ch in ('\n', '\r'):
+            result.append(' ')
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+
 def _parse_tag(pattern: re.Pattern[str], response_text: str, source: str) -> Assessment | None:
     matches = pattern.findall(response_text or '')
     if not matches:
@@ -152,7 +179,10 @@ def _parse_tag(pattern: re.Pattern[str], response_text: str, source: str) -> Ass
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
-        return None
+        try:
+            data = json.loads(_sanitize_json_payload(payload))
+        except json.JSONDecodeError:
+            return None
     return _build_assessment(data, source)
 
 
@@ -173,7 +203,10 @@ def _parse_bare_json_assessment(response_text: str) -> Assessment | None:
         try:
             data = json.loads(_strip_code_fence(candidate))
         except (json.JSONDecodeError, ValueError):
-            continue
+            try:
+                data = json.loads(_sanitize_json_payload(_strip_code_fence(candidate)))
+            except (json.JSONDecodeError, ValueError):
+                continue
         if isinstance(data, dict) and 'status' in data:
             return _build_assessment(data, 'operator_state')
     return None

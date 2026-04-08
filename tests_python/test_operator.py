@@ -62,6 +62,21 @@ class SessionStoreTests(unittest.TestCase):
         self.assertEqual(state.score, 100)
         self.assertEqual(state.done_reason, 'smoke test passed')
 
+    def test_parses_operator_state_with_literal_newlines_in_summary(self) -> None:
+        """LLMs sometimes embed bare newlines inside JSON string values."""
+        response = (
+            'Some output.\n\n'
+            '<OPERATOR_STATE>{"status":"done","score":95,"summary":"Added power(base, exp) function to\n\n'
+            'and comprehensive tests. All 50 tests pass.","next_prompt":"","tests":"pass",'
+            '"lint":"not_run","blockers":[],"needs_continue":false,"done_reason":"done"}'
+            '</OPERATOR_STATE>'
+        )
+        state = parse_operator_state(response)
+        self.assertIsNotNone(state)
+        self.assertEqual(state.status, 'done')
+        self.assertEqual(state.score, 95)
+        self.assertIn('power', state.summary)
+
 
 class PlannerTests(unittest.TestCase):
     def test_parse_operator_plan_reads_milestones_and_tasks(self) -> None:
