@@ -84,16 +84,26 @@ def send_chat_prompt(
     maximize: bool = False,
 ) -> None:
     focus_workspace(config.workspace, config)
-    # Windows has an ~8191 char command-line limit; truncate gracefully if needed
-    _MAX_PROMPT = 7500
-    if len(prompt) > _MAX_PROMPT:
-        prompt = prompt[:_MAX_PROMPT] + '\n\n[...prompt truncated to fit command-line limit...]'
+
+    # Windows command-line escaping can inflate prompt length 3-4x.
+    # Write prompt to a file in the workspace and use --add-file to pass it.
+    prompt_file = config.workspace / '.copilot-operator' / 'current-prompt.md'
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(prompt, encoding='utf-8')
+
     args = ['chat', '--reuse-window', '--mode', config.mode]
+    args.extend(['--add-file', str(prompt_file)])
     for add_file in add_files or []:
         args.extend(['--add-file', str(add_file)])
     if maximize:
         args.append('--maximize')
-    args.append(prompt)
+    # Inline text triggers the session; the real instructions are in the attached file.
+    # We repeat the OPERATOR_STATE requirement inline so it appears even if the file
+    # is treated as context rather than the primary prompt.
+    args.append(
+        'Follow the instructions in the attached .copilot-operator/current-prompt.md file exactly. '
+        'Your reply MUST end with <OPERATOR_STATE>{...}</OPERATOR_STATE> and <OPERATOR_PLAN>{...}</OPERATOR_PLAN> blocks as specified.'
+    )
     run_code_command(
         args,
         cwd=config.workspace,
