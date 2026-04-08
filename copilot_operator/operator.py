@@ -660,8 +660,8 @@ class CopilotOperator:
         if should_run_critic(iteration, assessment.score, self.config.target_score):
             critic_prompt = build_critic_prompt(
                 goal=self.runtime.get('goal', ''),
-                summary=assessment.summary,
-                score=assessment.score,
+                coder_summary=assessment.summary,
+                coder_score=assessment.score,
             )
             # Store critic prompt for the next iteration to use
             self.runtime['_pending_critic'] = critic_prompt
