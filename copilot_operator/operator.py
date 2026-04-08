@@ -148,6 +148,12 @@ class CopilotOperator:
                     self.runtime['finishedAt'] = self._now()
                     self.runtime['finalReason'] = f'Stopped after {error_retry_count} consecutive errors: {exc}'
                     self.runtime['finalReasonCode'] = 'CONSECUTIVE_ERRORS'
+                    self.runtime['pendingDecision'] = {
+                        'action': 'continue',
+                        'reason': f'Stopped after {error_retry_count} consecutive errors — can be auto-resumed.',
+                        'reasonCode': 'CONSECUTIVE_ERRORS',
+                        'nextPrompt': decision.next_prompt,
+                    }
                     self._write_runtime()
                     return {
                         'status': 'error',
@@ -170,7 +176,12 @@ class CopilotOperator:
         self.runtime['finishedAt'] = self._now()
         self.runtime['finalReason'] = 'Maximum iteration count reached.'
         self.runtime['finalReasonCode'] = 'MAX_ITERATIONS_REACHED'
-        self.runtime['pendingDecision'] = None
+        self.runtime['pendingDecision'] = {
+            'action': 'continue',
+            'reason': 'Maximum iteration count reached — can be auto-resumed.',
+            'reasonCode': 'MAX_ITERATIONS_REACHED',
+            'nextPrompt': decision.next_prompt,
+        }
         self._write_runtime()
         result = {
             'status': 'blocked',

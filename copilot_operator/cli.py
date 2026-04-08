@@ -187,6 +187,7 @@ def _run(
     resume: bool,
     dry_run: bool = False,
     live: bool = False,
+    fresh: bool = False,
 ) -> int:
     config = load_config(config_path, workspace_override)
     if mode:
@@ -195,6 +196,26 @@ def _run(
         config.goal_profile = goal_profile.strip().lower()
     if max_iterations is not None:
         config.max_iterations = max_iterations
+
+    # Auto-resume: detect pending state when not explicitly resuming or starting fresh
+    if not resume and not fresh and config.state_file.exists():
+        try:
+            state = json.loads(config.state_file.read_text(encoding='utf-8'))
+            status = str(state.get('status', '')).strip().lower()
+            pending = state.get('pendingDecision') or {}
+            if status in ('blocked', 'error', 'running') and pending.get('action') == 'continue':
+                old_goal = str(state.get('goal', '')).strip()
+                new_goal = _read_goal(config_path, workspace_override, goal, goal_file) if (goal or goal_file) else ''
+                if new_goal and old_goal and new_goal != old_goal:
+                    print(f'⚠ Goal changed from previous run. Starting fresh.\n  Old: {old_goal[:80]}\n  New: {new_goal[:80]}', file=sys.stderr)
+                else:
+                    last_iter = len(state.get('history', []))
+                    last_score = (state.get('history', [{}])[-1] if state.get('history') else {}).get('score', '?')
+                    print(f'Auto-resuming previous run (iteration {last_iter}, score {last_score})...', file=sys.stderr)
+                    resume = True
+        except (json.JSONDecodeError, OSError):
+            pass
+
     operator = CopilotOperator(config, dry_run=dry_run, live=live)
     goal_value = None if resume and not (goal or goal_file) else _read_goal(config_path, workspace_override, goal, goal_file)
     result = operator.run(goal_value, resume=resume)
@@ -482,6 +503,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_run_shared_arguments(run)
     run.add_argument('--dry-run', action='store_true', help='Generate prompt only — skip VS Code interaction.')
     run.add_argument('--live', action='store_true', help='Print real-time iteration progress to stderr.')
+    run.add_argument('--fresh', action='store_true', help='Force a fresh start, ignoring any pending state.')
     run.set_defaults(
         handler=lambda args: _run(
             args.config,
@@ -494,6 +516,7 @@ def build_parser() -> argparse.ArgumentParser:
             False,
             getattr(args, 'dry_run', False),
             getattr(args, 'live', False),
+            getattr(args, 'fresh', False),
         )
     )
 
