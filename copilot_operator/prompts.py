@@ -311,41 +311,11 @@ def build_initial_prompt(goal: str, target_score: int, context: PromptContext) -
     return f"""You are GitHub Copilot running inside VS Code and you are being driven by an external local operator loop.
 Treat this as a fresh session that must pick up context from the workspace plus the attached memory files.
 
-Goal:
-{goal}
+⚠️ CRITICAL OUTPUT REQUIREMENT — READ FIRST:
+Your reply MUST end with EXACTLY these two machine-readable blocks or the operator loop will treat this session as failed and retry.
+Do not use any other format. Do not use [AUDIT_SCORE:...] or any other tag.
+Fill in the real values — do not leave the template placeholders.
 
-Goal profile:
-{context.goal_profile_text}
-
-Repo profile:
-{context.repo_profile_text}
-
-Workspace insight:
-{context.workspace_insight_text}
-
-Current milestone plan:
-{context.plan_text}
-
-Rules:
-- Make real progress in the workspace, not just advice.
-- Do the highest leverage chunk you can finish now.
-- Respect protected paths unless the change is absolutely necessary and justified.
-- Run the most relevant checks before claiming done.
-- Keep milestone ids and task ids stable once you introduce them.
-- If the plan is incomplete or naive, replace it with a tighter 2-7 milestone plan and add concrete tasks to the active milestone.
-- If you need another turn, do not end vaguely. Put the exact baton for the next turn into next_prompt and make it match the current task queue.
-- If you hit a tool ceiling or a continuation boundary, set needs_continue=true.
-- Score the project honestly from 0 to 100.
-- Only set status=done if the work is genuinely ready, score is at least {target_score}, and there are no critical/high blockers left.
-- If another workspace instruction already asks you to emit a machine-readable audit block, you may emit both, but OPERATOR_STATE must still be present.
-
-Recent operator memory:
-{context.recent_history}
-
-Operator-side validation snapshot:
-{context.validation_snapshot}
-{_optional_section('Codebase map', context.repo_map_text)}{_optional_section('Operator intelligence analysis', context.intelligence_text)}{_optional_section('Project brain (from past runs)', context.brain_text)}{_optional_section('Intention-aware guardrails', context.intention_text)}{_optional_section('Cross-repo insights', context.cross_repo_text)}
-At the very end of your reply, emit exactly one machine-readable block in each format below.
 <OPERATOR_STATE>
 {{
   "status": "continue",
@@ -387,13 +357,101 @@ At the very end of your reply, emit exactly one machine-readable block in each f
     }}
   ]
 }}
-</OPERATOR_PLAN>"""
+</OPERATOR_PLAN>
+
+---
+
+Goal:
+{goal}
+
+Goal profile:
+{context.goal_profile_text}
+
+Repo profile:
+{context.repo_profile_text}
+
+Workspace insight:
+{context.workspace_insight_text}
+
+Current milestone plan:
+{context.plan_text}
+
+Rules:
+- Make real progress in the workspace, not just advice.
+- Do the highest leverage chunk you can finish now.
+- Respect protected paths unless the change is absolutely necessary and justified.
+- Run the most relevant checks before claiming done.
+- Keep milestone ids and task ids stable once you introduce them.
+- If the plan is incomplete or naive, replace it with a tighter 2-7 milestone plan and add concrete tasks to the active milestone.
+- If you need another turn, do not end vaguely. Put the exact baton for the next turn into next_prompt and make it match the current task queue.
+- If you hit a tool ceiling or a continuation boundary, set needs_continue=true.
+- Score the project honestly from 0 to 100.
+- Only set status=done if the work is genuinely ready, score is at least {target_score}, and there are no critical/high blockers left.
+- AUTONOMOUS MODE: Never ask the user a question. Never request confirmation. When uncertain, read files or search, then decide.
+
+Recent operator memory:
+{context.recent_history}
+
+Operator-side validation snapshot:
+{context.validation_snapshot}
+{_optional_section('Codebase map', context.repo_map_text)}{_optional_section('Operator intelligence analysis', context.intelligence_text)}{_optional_section('Project brain (from past runs)', context.brain_text)}{_optional_section('Intention-aware guardrails', context.intention_text)}{_optional_section('Cross-repo insights', context.cross_repo_text)}
+Remember: your reply MUST end with the <OPERATOR_STATE> and <OPERATOR_PLAN> blocks shown at the top of this prompt."""
 
 
 def build_follow_up_prompt(goal: str, baton: str, target_score: int, context: PromptContext, reason: str) -> str:
     baton_text = baton or 'Continue from the first unfinished task in the workspace, then end with a fresh OPERATOR_STATE block.'
     return f"""Continue the same goal in a fresh externally-operated Copilot session.
 Do not restart from scratch and do not repeat long summaries.
+
+⚠️ CRITICAL OUTPUT REQUIREMENT — READ FIRST:
+Your reply MUST end with EXACTLY these two machine-readable blocks or the operator loop will treat this session as failed and retry.
+Do not use any other format. Do not use [AUDIT_SCORE:...] or any other tag.
+Fill in the real values — do not leave the template placeholders.
+
+<OPERATOR_STATE>
+{{
+  "status": "continue",
+  "score": 0,
+  "summary": "what changed this turn",
+  "next_prompt": "exact prompt the operator should send next if another turn is needed",
+  "tests": "pass|fail|not_run|not_applicable",
+  "lint": "pass|fail|not_run|not_applicable",
+  "blockers": [{{"severity": "low|medium|high|critical", "item": "description"}}],
+  "needs_continue": false,
+  "done_reason": "short explanation"
+}}
+</OPERATOR_STATE>
+
+<OPERATOR_PLAN>
+{{
+  "summary": "short plan summary",
+  "current_milestone_id": "m1",
+  "next_milestone_id": "m2",
+  "current_task_id": "m1.t1",
+  "next_task_id": "m1.t2",
+  "milestones": [
+    {{
+      "id": "m1",
+      "title": "milestone title",
+      "status": "pending|in_progress|done|blocked",
+      "summary": "what changed or what remains",
+      "acceptance": ["acceptance item"],
+      "current_task_id": "m1.t1",
+      "next_task_id": "m1.t2",
+      "tasks": [
+        {{
+          "id": "m1.t1",
+          "title": "current task title",
+          "status": "pending|in_progress|done|blocked",
+          "summary": "task-level progress or remaining work"
+        }}
+      ]
+    }}
+  ]
+}}
+</OPERATOR_PLAN>
+
+---
 
 Goal:
 {goal}
@@ -429,8 +487,8 @@ Remember:
 - Respect protected paths unless the change is absolutely necessary and justified.
 - Update the milestone plan honestly, keep milestone/task ids stable, and keep the active task queue truthful.
 - If more work remains, set status=continue and give the exact next_prompt.
-- If another workspace instruction already asks for a machine-readable audit block, you may emit both, but OPERATOR_STATE must still be present.
-- End with exactly one <OPERATOR_STATE> JSON block and one <OPERATOR_PLAN> JSON block again."""
+- AUTONOMOUS MODE: Never ask the user a question. Never request confirmation. When uncertain, read files or search, then decide.
+- Your reply MUST end with the <OPERATOR_STATE> and <OPERATOR_PLAN> blocks shown at the top of this prompt."""
 
 
 def fallback_assessment(response_text: str, needs_continue: bool) -> Assessment:
