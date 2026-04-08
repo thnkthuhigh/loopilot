@@ -321,7 +321,7 @@ def _agent_supervisor_text() -> str:
 name: Supervisor
 description: "Use when you want an autonomous local supervisor loop for GitHub Copilot agent mode: research, implement, audit, continue, score progress, and decide the next directive."
 argument-hint: "State the goal, constraints, and current progress"
-tools: [agent, read, search, web, todo]
+tools: [agent, read, search, web, todo, edit, execute]
 agents: [Researcher, Implementer, Auditor]
 model:
   - Claude Opus 4.5 (copilot)
