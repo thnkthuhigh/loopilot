@@ -84,6 +84,10 @@ def send_chat_prompt(
     maximize: bool = False,
 ) -> None:
     focus_workspace(config.workspace, config)
+    # Windows has an ~8191 char command-line limit; truncate gracefully if needed
+    _MAX_PROMPT = 7500
+    if len(prompt) > _MAX_PROMPT:
+        prompt = prompt[:_MAX_PROMPT] + '\n\n[...prompt truncated to fit command-line limit...]'
     args = ['chat', '--reuse-window', '--mode', config.mode]
     for add_file in add_files or []:
         args.extend(['--add-file', str(add_file)])
