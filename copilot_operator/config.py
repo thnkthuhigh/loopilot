@@ -67,6 +67,8 @@ class OperatorConfig:
     repo_profile: RepoProfile = field(default_factory=RepoProfile)
     workspace_insight: WorkspaceInsight = field(default_factory=WorkspaceInsight)
     llm_config_raw: dict[str, Any] = field(default_factory=dict)
+    escalation_policy: str = 'escalate'  # 'escalate' | 'block' | 'warn'
+    large_diff_threshold: int = 200
     auto_create_pr: bool = False
     github_token: str = field(default_factory=lambda: os.environ.get('GITHUB_TOKEN', ''))
 
@@ -247,6 +249,8 @@ def load_config(path: str | Path | None = None, workspace_override: str | Path |
         repo_profile=repo_profile,
         workspace_insight=workspace_insight,
         llm_config_raw=llm_config_raw,
+        escalation_policy=str(merged_raw.get('escalationPolicy', merged_raw.get('escalation_policy', 'escalate'))).strip().lower() or 'escalate',
+        large_diff_threshold=int(merged_raw.get('largeDiffThreshold', merged_raw.get('large_diff_threshold', 200))),
         auto_create_pr=bool(merged_raw.get('autoCreatePr', merged_raw.get('auto_create_pr', False))),
         github_token=os.environ.get('GITHUB_TOKEN', ''),
     )

@@ -238,6 +238,70 @@ def _detect_hints(config_path: str | None, workspace_override: str | None) -> in
     return 0
 
 
+def _approve_escalation(config_path: str | None, workspace_override: str | None) -> int:
+    config = load_config(config_path, workspace_override)
+    if not config.state_file.exists():
+        print('No state file found.', file=sys.stderr)
+        return 1
+    state = json.loads(config.state_file.read_text(encoding='utf-8'))
+    escalation = state.get('pendingEscalation')
+    if not escalation:
+        print('No pending escalation found.', file=sys.stderr)
+        return 1
+    print(f"Escalation type: {escalation.get('type')}")
+    print(f"Paths: {', '.join(escalation.get('paths', []))}")
+    print(f"Diff summary:\n{escalation.get('diffSummary', '(none)')}")
+    # Clear escalation, set pending decision to continue
+    state['pendingEscalation'] = None
+    state['status'] = 'blocked'
+    state['pendingDecision'] = {
+        'action': 'continue',
+        'reason': 'Escalation approved — continuing with changes intact.',
+        'reasonCode': 'ESCALATION_APPROVED',
+        'nextPrompt': (state.get('pendingDecision') or {}).get('nextPrompt', state.get('goal', '')),
+    }
+    config.state_file.write_text(json.dumps(state, indent=2), encoding='utf-8')
+    print('Escalation approved. Run `run` or `resume` to continue.')
+    return 0
+
+
+def _reject_escalation(config_path: str | None, workspace_override: str | None) -> int:
+    config = load_config(config_path, workspace_override)
+    if not config.state_file.exists():
+        print('No state file found.', file=sys.stderr)
+        return 1
+    state = json.loads(config.state_file.read_text(encoding='utf-8'))
+    escalation = state.get('pendingEscalation')
+    if not escalation:
+        print('No pending escalation found.', file=sys.stderr)
+        return 1
+    violated_paths = escalation.get('paths', [])
+    paths_str = ', '.join(violated_paths)
+    # Rollback via snapshot if available
+    try:
+        from .snapshot import SnapshotManager, rollback_to_last_good
+        mgr = SnapshotManager()
+        rollback_to_last_good(mgr)
+        print('Changes rolled back.')
+    except Exception:
+        print('Warning: could not rollback changes automatically.', file=sys.stderr)
+    # Set pending decision with adjusted prompt
+    state['pendingEscalation'] = None
+    state['status'] = 'blocked'
+    original_prompt = (state.get('pendingDecision') or {}).get('nextPrompt', state.get('goal', ''))
+    adjusted_prompt = f"{original_prompt}\n\nDo NOT modify these protected paths: {paths_str}"
+    state['pendingDecision'] = {
+        'action': 'continue',
+        'reason': f'Escalation rejected — rolled back, avoiding paths: {paths_str}',
+        'reasonCode': 'ESCALATION_REJECTED',
+        'nextPrompt': adjusted_prompt,
+    }
+    config.state_file.write_text(json.dumps(state, indent=2), encoding='utf-8')
+    print(f'Escalation rejected. Protected paths: {paths_str}')
+    print('Run `run` or `resume` to continue with adjusted prompt.')
+    return 0
+
+
 def _status(config_path: str | None, workspace_override: str | None) -> int:
     config = load_config(config_path, workspace_override)
     result = read_operator_status(config.state_file, config.summary_file)
@@ -471,6 +535,14 @@ def build_parser() -> argparse.ArgumentParser:
     detect_hints = subparsers.add_parser('detect-hints', help='Re-detect ecosystem and hydrate empty validation commands.')
     _add_common_arguments(detect_hints)
     detect_hints.set_defaults(handler=lambda args: _detect_hints(args.config, args.workspace))
+
+    approve = subparsers.add_parser('approve-escalation', help='Approve a pending escalation and resume the run.')
+    _add_common_arguments(approve)
+    approve.set_defaults(handler=lambda args: _approve_escalation(args.config, args.workspace))
+
+    reject = subparsers.add_parser('reject-escalation', help='Reject a pending escalation, rollback, and adjust prompt.')
+    _add_common_arguments(reject)
+    reject.set_defaults(handler=lambda args: _reject_escalation(args.config, args.workspace))
 
     status = subparsers.add_parser('status', help='Read the latest operator state and summary.')
     _add_common_arguments(status)

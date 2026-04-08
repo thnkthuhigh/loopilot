@@ -316,32 +316,83 @@ class CopilotOperator:
         protected_violations = self._check_protected_paths()
         if protected_violations:
             violated_str = ', '.join(protected_violations[:5])
-            logger.warning('Protected path violation at iteration %d: %s', iteration, violated_str)
-            self._live_print(
-                f'{cyan(f"[{iteration}/{self.config.max_iterations}]")} '
-                f'{status_badge("error")} Protected path violation: {violated_str}'
-            )
-            self.runtime['status'] = 'error'
-            self.runtime['finishedAt'] = self._now()
-            self.runtime['finalReason'] = f'Copilot modified protected path(s): {violated_str}'
-            self.runtime['finalReasonCode'] = 'PROTECTED_PATH_VIOLATION'
-            self.runtime['pendingDecision'] = None
-            self._write_runtime()
-            # Attempt rollback
-            if hasattr(self, '_snapshot_mgr'):
-                from .snapshot import rollback_to_last_good
-                rollback_to_last_good(self._snapshot_mgr)
-            result = {
-                'status': 'error',
-                'reason': f'Copilot modified protected path(s): {violated_str}',
-                'reasonCode': 'PROTECTED_PATH_VIOLATION',
-                'violations': protected_violations,
-                'iterations': iteration,
-                'stateFile': str(self.config.state_file),
-            }
-            dump_json(self.config.summary_file, result)
-            self._post_run_hooks(result)
-            return result
+            policy = self.config.escalation_policy
+
+            if policy == 'warn':
+                # Warn only — log and continue
+                logger.warning('Protected path modified (warn policy) at iteration %d: %s', iteration, violated_str)
+                self._live_print(
+                    f'{cyan(f"[{iteration}/{self.config.max_iterations}]")} '
+                    f'⚠ Protected path warning: {violated_str}'
+                )
+            elif policy == 'escalate':
+                # Escalate — pause for human decision
+                logger.warning('Protected path escalation at iteration %d: %s', iteration, violated_str)
+                self._live_print(
+                    f'{cyan(f"[{iteration}/{self.config.max_iterations}]")} '
+                    f'{status_badge("error")} Protected path escalation: {violated_str}'
+                )
+                diff_summary = ''
+                try:
+                    diff_summary = get_diff_summary(self.config.workspace)
+                except Exception:
+                    pass
+                self.runtime['status'] = 'escalated'
+                self.runtime['finishedAt'] = self._now()
+                self.runtime['finalReason'] = f'Protected path(s) modified — escalation required: {violated_str}'
+                self.runtime['finalReasonCode'] = 'ESCALATION_REQUIRED'
+                self.runtime['pendingEscalation'] = {
+                    'type': 'protected_path',
+                    'paths': protected_violations,
+                    'iteration': iteration,
+                    'diffSummary': diff_summary,
+                    'timestamp': self._now(),
+                }
+                self.runtime['pendingDecision'] = {
+                    'action': 'escalate',
+                    'reason': f'Protected path(s) modified: {violated_str}',
+                    'reasonCode': 'ESCALATION_REQUIRED',
+                    'nextPrompt': decision.next_prompt,
+                }
+                self._write_runtime()
+                result = {
+                    'status': 'escalated',
+                    'reason': f'Protected path(s) modified — human approval required: {violated_str}',
+                    'reasonCode': 'ESCALATION_REQUIRED',
+                    'violations': protected_violations,
+                    'iterations': iteration,
+                    'stateFile': str(self.config.state_file),
+                }
+                dump_json(self.config.summary_file, result)
+                self._post_run_hooks(result)
+                return result
+            else:
+                # Block (original behavior)
+                logger.warning('Protected path violation at iteration %d: %s', iteration, violated_str)
+                self._live_print(
+                    f'{cyan(f"[{iteration}/{self.config.max_iterations}]")} '
+                    f'{status_badge("error")} Protected path violation: {violated_str}'
+                )
+                self.runtime['status'] = 'error'
+                self.runtime['finishedAt'] = self._now()
+                self.runtime['finalReason'] = f'Copilot modified protected path(s): {violated_str}'
+                self.runtime['finalReasonCode'] = 'PROTECTED_PATH_VIOLATION'
+                self.runtime['pendingDecision'] = None
+                self._write_runtime()
+                if hasattr(self, '_snapshot_mgr'):
+                    from .snapshot import rollback_to_last_good
+                    rollback_to_last_good(self._snapshot_mgr)
+                result = {
+                    'status': 'error',
+                    'reason': f'Copilot modified protected path(s): {violated_str}',
+                    'reasonCode': 'PROTECTED_PATH_VIOLATION',
+                    'violations': protected_violations,
+                    'iterations': iteration,
+                    'stateFile': str(self.config.state_file),
+                }
+                dump_json(self.config.summary_file, result)
+                self._post_run_hooks(result)
+                return result
 
         after_validation_results = run_validations(self.config.validation, self.config.workspace, phase='after_response')
         after_validation_path = self._artifact_path(iteration, 'validation.after.json')
