@@ -33,7 +33,11 @@ async function main() {
         `Max forced continuations: ${scorecard.maxForcedContinuations}. ` +
         `Stop only when score >= target, tests pass, lint passes, and no ${scorecard.blockerSeverities.join("/")} blockers remain. ` +
         `Benchmark schedule: ${benchmarkSchedule}. ` +
-        `Use the exact machine-readable tags from .github/agent-data/runtime-contract.md.`
+        `Use the exact machine-readable tags from .github/agent-data/runtime-contract.md. ` +
+        `AUTONOMOUS MODE: You are running in a fully automated loop with no human present. ` +
+        `Never pause to ask the user a question. Never request confirmation or approval. ` +
+        `When uncertain, make the most conservative safe decision and proceed immediately. ` +
+        `If you need information, read files or search — do not ask.`
     }
   });
 }
