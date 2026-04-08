@@ -83,44 +83,20 @@ def send_chat_prompt(
     add_files: Iterable[Path] | None = None,
     maximize: bool = False,
 ) -> None:
-    import tempfile
     focus_workspace(config.workspace, config)
-
-    # Write prompt to a temp file when it exceeds Windows command-line limit (~8000 chars)
-    _MAX_INLINE_LEN = 6000
-    prompt_file: Path | None = None
-    if len(prompt) > _MAX_INLINE_LEN:
-        tf = tempfile.NamedTemporaryFile(
-            mode='w', suffix='.md', prefix='copilot-operator-prompt-',
-            delete=False, encoding='utf-8',
-        )
-        tf.write(prompt)
-        tf.close()
-        prompt_file = Path(tf.name)
-
-    try:
-        args = ['chat', '--reuse-window', '--mode', config.mode]
-        if prompt_file:
-            args.extend(['--add-file', str(prompt_file)])
-        for add_file in add_files or []:
-            args.extend(['--add-file', str(add_file)])
-        if maximize:
-            args.append('--maximize')
-        # Use a short inline cue when the real prompt is in a file
-        args.append(prompt if prompt_file is None else 'Read the attached prompt file and follow its instructions exactly.')
-        run_code_command(
-            args,
-            cwd=config.workspace,
-            timeout_seconds=120,
-            retries=config.code_command_retries,
-            retry_delay_seconds=config.code_command_retry_delay_seconds,
-        )
-    finally:
-        if prompt_file and prompt_file.exists():
-            try:
-                prompt_file.unlink()
-            except OSError:
-                pass
+    args = ['chat', '--reuse-window', '--mode', config.mode]
+    for add_file in add_files or []:
+        args.extend(['--add-file', str(add_file)])
+    if maximize:
+        args.append('--maximize')
+    args.append(prompt)
+    run_code_command(
+        args,
+        cwd=config.workspace,
+        timeout_seconds=120,
+        retries=config.code_command_retries,
+        retry_delay_seconds=config.code_command_retry_delay_seconds,
+    )
 
 
 def wait_for_session_file(chat_dir: Path, baseline: dict[Path, float], timeout_seconds: int, poll_interval: float) -> Path:

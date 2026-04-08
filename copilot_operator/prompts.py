@@ -311,55 +311,9 @@ def build_initial_prompt(goal: str, target_score: int, context: PromptContext) -
     return f"""You are GitHub Copilot running inside VS Code and you are being driven by an external local operator loop.
 Treat this as a fresh session that must pick up context from the workspace plus the attached memory files.
 
-⚠️ CRITICAL OUTPUT REQUIREMENT — READ FIRST:
-Your reply MUST end with EXACTLY these two machine-readable blocks or the operator loop will treat this session as failed and retry.
-Do not use any other format. Do not use [AUDIT_SCORE:...] or any other tag.
-Fill in the real values — do not leave the template placeholders.
-
-<OPERATOR_STATE>
-{{
-  "status": "continue",
-  "score": 0,
-  "summary": "what changed this turn",
-  "next_prompt": "exact prompt the operator should send next if another turn is needed",
-  "tests": "pass|fail|not_run|not_applicable",
-  "lint": "pass|fail|not_run|not_applicable",
-  "blockers": [{{"severity": "low|medium|high|critical", "item": "description"}}],
-  "needs_continue": false,
-  "done_reason": "short explanation"
-}}
-</OPERATOR_STATE>
-
-<OPERATOR_PLAN>
-{{
-  "summary": "short plan summary",
-  "current_milestone_id": "m1",
-  "next_milestone_id": "m2",
-  "current_task_id": "m1.t1",
-  "next_task_id": "m1.t2",
-  "milestones": [
-    {{
-      "id": "m1",
-      "title": "milestone title",
-      "status": "pending|in_progress|done|blocked",
-      "summary": "what changed or what remains",
-      "acceptance": ["acceptance item"],
-      "current_task_id": "m1.t1",
-      "next_task_id": "m1.t2",
-      "tasks": [
-        {{
-          "id": "m1.t1",
-          "title": "current task title",
-          "status": "pending|in_progress|done|blocked",
-          "summary": "task-level progress or remaining work"
-        }}
-      ]
-    }}
-  ]
-}}
-</OPERATOR_PLAN>
-
----
+⚠️ MANDATORY: End your reply with EXACTLY these two XML blocks (fill in real values, no placeholders):
+<OPERATOR_STATE>{{"status":"done|continue|blocked","score":0,"summary":"","next_prompt":"","tests":"pass|fail|not_run","lint":"pass|fail|not_run","blockers":[],"needs_continue":false,"done_reason":""}}</OPERATOR_STATE>
+<OPERATOR_PLAN>{{"summary":"","current_milestone_id":"m1","next_milestone_id":"","current_task_id":"m1.t1","next_task_id":"","milestones":[]}}</OPERATOR_PLAN>
 
 Goal:
 {goal}
@@ -395,7 +349,7 @@ Recent operator memory:
 Operator-side validation snapshot:
 {context.validation_snapshot}
 {_optional_section('Codebase map', context.repo_map_text)}{_optional_section('Operator intelligence analysis', context.intelligence_text)}{_optional_section('Project brain (from past runs)', context.brain_text)}{_optional_section('Intention-aware guardrails', context.intention_text)}{_optional_section('Cross-repo insights', context.cross_repo_text)}
-Remember: your reply MUST end with the <OPERATOR_STATE> and <OPERATOR_PLAN> blocks shown at the top of this prompt."""
+REMINDER: Your reply MUST end with <OPERATOR_STATE>{{...}}</OPERATOR_STATE> and <OPERATOR_PLAN>{{...}}</OPERATOR_PLAN> blocks."""
 
 
 def build_follow_up_prompt(goal: str, baton: str, target_score: int, context: PromptContext, reason: str) -> str:
@@ -403,55 +357,9 @@ def build_follow_up_prompt(goal: str, baton: str, target_score: int, context: Pr
     return f"""Continue the same goal in a fresh externally-operated Copilot session.
 Do not restart from scratch and do not repeat long summaries.
 
-⚠️ CRITICAL OUTPUT REQUIREMENT — READ FIRST:
-Your reply MUST end with EXACTLY these two machine-readable blocks or the operator loop will treat this session as failed and retry.
-Do not use any other format. Do not use [AUDIT_SCORE:...] or any other tag.
-Fill in the real values — do not leave the template placeholders.
-
-<OPERATOR_STATE>
-{{
-  "status": "continue",
-  "score": 0,
-  "summary": "what changed this turn",
-  "next_prompt": "exact prompt the operator should send next if another turn is needed",
-  "tests": "pass|fail|not_run|not_applicable",
-  "lint": "pass|fail|not_run|not_applicable",
-  "blockers": [{{"severity": "low|medium|high|critical", "item": "description"}}],
-  "needs_continue": false,
-  "done_reason": "short explanation"
-}}
-</OPERATOR_STATE>
-
-<OPERATOR_PLAN>
-{{
-  "summary": "short plan summary",
-  "current_milestone_id": "m1",
-  "next_milestone_id": "m2",
-  "current_task_id": "m1.t1",
-  "next_task_id": "m1.t2",
-  "milestones": [
-    {{
-      "id": "m1",
-      "title": "milestone title",
-      "status": "pending|in_progress|done|blocked",
-      "summary": "what changed or what remains",
-      "acceptance": ["acceptance item"],
-      "current_task_id": "m1.t1",
-      "next_task_id": "m1.t2",
-      "tasks": [
-        {{
-          "id": "m1.t1",
-          "title": "current task title",
-          "status": "pending|in_progress|done|blocked",
-          "summary": "task-level progress or remaining work"
-        }}
-      ]
-    }}
-  ]
-}}
-</OPERATOR_PLAN>
-
----
+⚠️ MANDATORY: End your reply with EXACTLY these two XML blocks (fill in real values):
+<OPERATOR_STATE>{{"status":"done|continue|blocked","score":0,"summary":"","next_prompt":"","tests":"pass|fail|not_run","lint":"pass|fail|not_run","blockers":[],"needs_continue":false,"done_reason":""}}</OPERATOR_STATE>
+<OPERATOR_PLAN>{{"summary":"","current_milestone_id":"m1","next_milestone_id":"","current_task_id":"m1.t1","next_task_id":"","milestones":[]}}</OPERATOR_PLAN>
 
 Goal:
 {goal}
@@ -488,7 +396,7 @@ Remember:
 - Update the milestone plan honestly, keep milestone/task ids stable, and keep the active task queue truthful.
 - If more work remains, set status=continue and give the exact next_prompt.
 - AUTONOMOUS MODE: Never ask the user a question. Never request confirmation. When uncertain, read files or search, then decide.
-- Your reply MUST end with the <OPERATOR_STATE> and <OPERATOR_PLAN> blocks shown at the top of this prompt."""
+- Your reply MUST end with <OPERATOR_STATE>{{...}}</OPERATOR_STATE> and <OPERATOR_PLAN>{{...}}</OPERATOR_PLAN> blocks."""
 
 
 def fallback_assessment(response_text: str, needs_continue: bool) -> Assessment:
