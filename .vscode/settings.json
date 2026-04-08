@@ -4,5 +4,10 @@
     ".github/agents"
   ],
   "chat.tools.global.autoApprove": true,
+  "chat.autopilot.enabled": true,
+  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.tools.edits.autoApprove": {
+    "**": true
+  },
   "github.copilot.chat.preferredModel": "Claude Opus 4.5 (copilot)"
 }

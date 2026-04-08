@@ -306,7 +306,12 @@ def _checklist_doc() -> str:
 
 def _vscode_settings_text() -> str:
     return """{
-  "chat.tools.global.autoApprove": true
+  "chat.tools.global.autoApprove": true,
+  "chat.autopilot.enabled": true,
+  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.tools.edits.autoApprove": {
+    "**": true
+  }
 }
 """
 
@@ -444,8 +449,11 @@ def _merge_vscode_settings(workspace: Path) -> None:
 
     Merges into an existing file rather than overwriting it.
     Sets:
-    - chat.tools.global.autoApprove: true  (skip per-tool Allow prompts)
-    - github.copilot.chat.preferredModel   (consistent model across machines)
+    - chat.tools.global.autoApprove: true          (skip per-tool Allow prompts)
+    - chat.autopilot.enabled: true                  (enable Autopilot permission level)
+    - chat.tools.terminal.enableAutoApprove: true   (auto-approve terminal commands)
+    - chat.tools.edits.autoApprove: {"**": true}    (auto-approve all file edits)
+    - github.copilot.chat.preferredModel            (consistent model across machines)
     """
     settings_path = workspace / '.vscode' / 'settings.json'
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -460,6 +468,15 @@ def _merge_vscode_settings(workspace: Path) -> None:
     changed = False
     if existing.get('chat.tools.global.autoApprove') is not True:
         existing['chat.tools.global.autoApprove'] = True
+        changed = True
+    if existing.get('chat.autopilot.enabled') is not True:
+        existing['chat.autopilot.enabled'] = True
+        changed = True
+    if existing.get('chat.tools.terminal.enableAutoApprove') is not True:
+        existing['chat.tools.terminal.enableAutoApprove'] = True
+        changed = True
+    if existing.get('chat.tools.edits.autoApprove') != {'**': True}:
+        existing['chat.tools.edits.autoApprove'] = {'**': True}
         changed = True
     # Always overwrite if value is not in our known-good list (e.g. differs from what we want)
     current_model = existing.get('github.copilot.chat.preferredModel', '')

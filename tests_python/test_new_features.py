@@ -470,6 +470,9 @@ class TestMergeVscodeSettings(unittest.TestCase):
             vscode.mkdir()
             initial = {
                 'chat.tools.global.autoApprove': True,
+                'chat.autopilot.enabled': True,
+                'chat.tools.terminal.enableAutoApprove': True,
+                'chat.tools.edits.autoApprove': {'**': True},
                 'github.copilot.chat.preferredModel': _PREFERRED_MODELS[0],
             }
             path = vscode / 'settings.json'
