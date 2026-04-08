@@ -64,7 +64,7 @@ class TestLoadFromEnv(unittest.TestCase):
             self.assertEqual(config.model, 'gpt-4')
 
     def test_no_keys_returns_disabled(self):
-        env = {k: '' for k in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'LOCAL_LLM_API_KEY', 'COPILOT_OPERATOR_LLM_PROVIDER']}
+        env = {k: '' for k in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'XAI_API_KEY', 'LOCAL_LLM_API_KEY', 'COPILOT_OPERATOR_LLM_PROVIDER']}
         with patch.dict('os.environ', env, clear=False):
             config = load_llm_config_from_env()
             self.assertFalse(config.enabled)

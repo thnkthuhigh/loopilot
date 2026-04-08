@@ -456,6 +456,8 @@ class OperatorIntelligenceIntegrationTests(unittest.TestCase):
             self.assertIn('MUST change your approach', decision.next_prompt)
 
     def test_operator_fresh_run_uses_smart_plan(self) -> None:
+        from unittest.mock import patch
+
         from copilot_operator.config import OperatorConfig
         from copilot_operator.operator import CopilotOperator
 
@@ -472,8 +474,11 @@ class OperatorIntelligenceIntegrationTests(unittest.TestCase):
                 summary_file=workspace / '.copilot-operator' / 'session-summary.json',
                 log_dir=workspace / '.copilot-operator' / 'logs',
             )
-            op = CopilotOperator(config)
-            goal, decision, iteration = op._prepare_fresh_run('Fix the login crash')
+            # Disable LLM brain to test heuristic plan
+            with patch.object(CopilotOperator, '_llm_brain', None, create=True):
+                op = CopilotOperator(config)
+                op._llm_brain = None
+                goal, decision, iteration = op._prepare_fresh_run('Fix the login crash')
             # Smart plan should have multiple milestones for a bug profile
             plan = op.runtime['plan']
             self.assertGreater(len(plan['milestones']), 1)

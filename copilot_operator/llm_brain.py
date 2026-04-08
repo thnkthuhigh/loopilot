@@ -33,12 +33,13 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-SUPPORTED_PROVIDERS = ('openai', 'anthropic', 'gemini', 'local')
+SUPPORTED_PROVIDERS = ('openai', 'anthropic', 'gemini', 'xai', 'local')
 
 _DEFAULT_MODELS: dict[str, str] = {
     'openai': 'gpt-4o',
     'anthropic': 'claude-sonnet-4-20250514',
     'gemini': 'gemini-1.5-pro',
+    'xai': 'grok-3-mini',
     'local': 'default',
 }
 
@@ -46,6 +47,7 @@ _API_URLS: dict[str, str] = {
     'openai': 'https://api.openai.com/v1/chat/completions',
     'anthropic': 'https://api.anthropic.com/v1/messages',
     'gemini': 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+    'xai': 'https://api.x.ai/v1/chat/completions',
     'local': 'http://localhost:11434/v1/chat/completions',
 }
 
@@ -53,6 +55,7 @@ _TOKEN_ENV_VARS: dict[str, str] = {
     'openai': 'OPENAI_API_KEY',
     'anthropic': 'ANTHROPIC_API_KEY',
     'gemini': 'GEMINI_API_KEY',
+    'xai': 'XAI_API_KEY',
     'local': 'LOCAL_LLM_API_KEY',
 }
 
@@ -61,6 +64,7 @@ _MAX_TOKENS_DEFAULT: dict[str, int] = {
     'openai': 4096,
     'anthropic': 4096,
     'gemini': 4096,
+    'xai': 4096,
     'local': 2048,
 }
 
@@ -81,6 +85,9 @@ _COST_PER_1K: dict[str, tuple[float, float]] = {
     'gemini-1.5-pro': (0.00125, 0.005),
     'gemini-1.5-flash': (0.000075, 0.0003),
     'gemini-pro': (0.000125, 0.000375),
+    # xAI Grok
+    'grok-3-mini': (0.0003, 0.0005),
+    'grok-3': (0.003, 0.015),
 }
 
 
