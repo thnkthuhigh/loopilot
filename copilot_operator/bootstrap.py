@@ -60,7 +60,7 @@ operator:
 
 def _config_text() -> str:
     return """workspace: .
-mode: Operator
+mode: agent
 goalProfile: default
 maxIterations: 6
 pollIntervalSeconds: 2
