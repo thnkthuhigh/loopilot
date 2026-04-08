@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import time
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from .planner import build_milestone_baton, summarize_plan
+from .repo_inspector import WorkspaceInsight, detect_workspace_insight
 
 
 def _workspace_name(workspace: Path) -> str:
@@ -618,7 +620,43 @@ def scaffold_map(workspace: Path) -> dict[Path, str]:
     return result
 
 
-def initialize_workspace(workspace: str | Path, force: bool = False) -> dict[str, Any]:
+def _hydrate_config_validation(config_path: Path, insight: WorkspaceInsight) -> dict[str, str]:
+    """Read copilot-operator.yml, fill empty validation commands from insight hints, write back."""
+    if not config_path.exists() or not insight.validation_hints:
+        return {}
+    text = config_path.read_text(encoding='utf-8')
+    applied: dict[str, str] = {}
+    for name, hint in insight.validation_hints.items():
+        # Match lines like:  - name: tests\n    command: ""\n  (with optional quotes)
+        pattern = re.compile(
+            r'(- name:\s*' + re.escape(name) + r'\s*\n\s*command:\s*)(""|\'\'|)\s*\n',
+            re.IGNORECASE,
+        )
+        match = pattern.search(text)
+        if match:
+            text = text[:match.start()] + match.group(1) + hint + '\n' + text[match.end():]
+            applied[name] = hint
+    if applied:
+        config_path.write_text(text, encoding='utf-8')
+    return applied
+
+
+def detect_and_hydrate(workspace: str | Path) -> dict[str, Any]:
+    """Detect workspace ecosystem and hydrate empty validation commands in copilot-operator.yml."""
+    workspace_path = Path(workspace).resolve()
+    insight = detect_workspace_insight(workspace_path)
+    config_path = workspace_path / 'copilot-operator.yml'
+    applied = _hydrate_config_validation(config_path, insight)
+    return {
+        'workspace': str(workspace_path),
+        'ecosystem': insight.ecosystem,
+        'evidence': insight.evidence,
+        'validationHints': insight.validation_hints,
+        'applied': applied,
+    }
+
+
+def initialize_workspace(workspace: str | Path, force: bool = False, detect_hints: bool = True) -> dict[str, Any]:
     workspace_path = Path(workspace).resolve()
     workspace_path.mkdir(parents=True, exist_ok=True)
 
@@ -645,11 +683,22 @@ def initialize_workspace(workspace: str | Path, force: bool = False) -> dict[str
         gitignore_path.write_text(existing_gitignore + prefix + '\n'.join(missing_entries) + '\n', encoding='utf-8')
         updated_gitignore = True
 
+    # Auto-detect ecosystem and hydrate empty validation commands
+    hydrated: dict[str, str] = {}
+    ecosystem = 'unknown'
+    if detect_hints:
+        insight = detect_workspace_insight(workspace_path)
+        ecosystem = insight.ecosystem
+        config_path = workspace_path / 'copilot-operator.yml'
+        hydrated = _hydrate_config_validation(config_path, insight)
+
     return {
         'workspace': str(workspace_path),
         'created': created,
         'skipped': skipped,
         'updatedGitignore': updated_gitignore,
+        'ecosystem': ecosystem,
+        'hydratedValidation': hydrated,
     }
 
 

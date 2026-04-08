@@ -202,9 +202,17 @@ def _run(
     return 0
 
 
-def _init(config_path: str | None, workspace_override: str | None, force: bool) -> int:
+def _init(config_path: str | None, workspace_override: str | None, force: bool, detect_hints: bool = True) -> int:
     config = load_config(config_path, workspace_override)
-    result = initialize_workspace(config.workspace, force=force)
+    result = initialize_workspace(config.workspace, force=force, detect_hints=detect_hints)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _detect_hints(config_path: str | None, workspace_override: str | None) -> int:
+    from .bootstrap import detect_and_hydrate
+    config = load_config(config_path, workspace_override)
+    result = detect_and_hydrate(config.workspace)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
@@ -436,7 +444,12 @@ def build_parser() -> argparse.ArgumentParser:
     init = subparsers.add_parser('init', help='Scaffold operator files into the target workspace.')
     _add_common_arguments(init)
     init.add_argument('--force', action='store_true', help='Overwrite existing scaffold files.')
-    init.set_defaults(handler=lambda args: _init(args.config, args.workspace, args.force))
+    init.add_argument('--no-detect-hints', action='store_true', help='Skip auto-detection of validation commands.')
+    init.set_defaults(handler=lambda args: _init(args.config, args.workspace, args.force, not args.no_detect_hints))
+
+    detect_hints = subparsers.add_parser('detect-hints', help='Re-detect ecosystem and hydrate empty validation commands.')
+    _add_common_arguments(detect_hints)
+    detect_hints.set_defaults(handler=lambda args: _detect_hints(args.config, args.workspace))
 
     status = subparsers.add_parser('status', help='Read the latest operator state and summary.')
     _add_common_arguments(status)
