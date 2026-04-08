@@ -175,8 +175,37 @@ copilot-operator watch
 # Run bị Ctrl+C, hết pin, mạng đứt... → tiếp tục từ chỗ dừng
 copilot-operator resume
 
+# Hoặc chạy `run` lại — tự detect pending state và auto-resume
+copilot-operator run --goal "Fix the login bug"
+
+# Ép bắt đầu lại từ đầu (bỏ qua state cũ)
+copilot-operator run --goal "..." --fresh
+
 # Tiếp tục nhưng đổi mục tiêu
 copilot-operator resume --goal "Actually, focus on the login flow first"
+```
+
+### Tự detect validation commands
+
+```bash
+# Init tự detect ecosystem (Node/Python) và điền validation commands
+copilot-operator init
+
+# Init nhưng không tự detect
+copilot-operator init --no-detect-hints
+
+# Re-detect trên workspace đã có config
+copilot-operator detect-hints
+```
+
+### Xử lý protected path escalation
+
+```bash
+# Khi operator dừng vì protected path → xem và approve
+copilot-operator approve-escalation
+
+# Hoặc reject (rollback + tự thêm "Do NOT modify" vào prompt)
+copilot-operator reject-escalation
 ```
 
 ### Fix GitHub issue tự động
