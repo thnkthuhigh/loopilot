@@ -474,6 +474,9 @@ class TestMergeVscodeSettings(unittest.TestCase):
                 'chat.tools.terminal.enableAutoApprove': True,
                 'chat.tools.edits.autoApprove': {'**': True},
                 'github.copilot.chat.preferredModel': _PREFERRED_MODELS[0],
+                'chat.useCustomAgentHooks': True,
+                'chat.agentFilesLocations': ['.github/agents'],
+                'chat.hookFilesLocations': {'.github/hooks/supervisor.json': True},
             }
             path = vscode / 'settings.json'
             path.write_text(json.dumps(initial), encoding='utf-8')

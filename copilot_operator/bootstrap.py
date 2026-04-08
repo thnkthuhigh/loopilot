@@ -510,6 +510,16 @@ def _merge_vscode_settings(workspace: Path) -> None:
     if current_model not in _PREFERRED_MODELS:
         ws_existing['github.copilot.chat.preferredModel'] = _PREFERRED_MODELS[0]
         ws_changed = True
+    if ws_existing.get('chat.useCustomAgentHooks') is not True:
+        ws_existing['chat.useCustomAgentHooks'] = True
+        ws_changed = True
+    if ws_existing.get('chat.agentFilesLocations') != ['.github/agents']:
+        ws_existing['chat.agentFilesLocations'] = ['.github/agents']
+        ws_changed = True
+    _expected_hooks = {'.github/hooks/supervisor.json': True}
+    if ws_existing.get('chat.hookFilesLocations') != _expected_hooks:
+        ws_existing['chat.hookFilesLocations'] = _expected_hooks
+        ws_changed = True
     if ws_changed:
         ws_path.write_text(json.dumps(ws_existing, indent=2) + '\n', encoding='utf-8')
 
@@ -527,7 +537,15 @@ def _merge_vscode_settings(workspace: Path) -> None:
 
 
 def scaffold_map(workspace: Path) -> dict[Path, str]:
-    return {
+    # Hook files: read from the package's own .github/hooks so they stay in sync
+    _pkg_root = Path(__file__).parent.parent
+    _hooks_src = _pkg_root / '.github' / 'hooks'
+
+    def _hook(relpath: str) -> str:
+        p = _hooks_src / relpath
+        return p.read_text(encoding='utf-8') if p.exists() else ''
+
+    result: dict[Path, str] = {
         workspace / 'copilot-operator.yml': _config_text(),
         workspace / '.copilot-operator' / 'README.md': _runtime_readme_text(),
         workspace / '.copilot-operator' / 'repo-profile.yml': _repo_profile_text(workspace),
@@ -544,6 +562,21 @@ def scaffold_map(workspace: Path) -> dict[Path, str]:
         workspace / '.github' / 'agents' / 'researcher.agent.md': _agent_researcher_text(),
         workspace / '.github' / 'agents' / 'auditor.agent.md': _agent_auditor_text(),
     }
+
+    # Add hook files if available from the package
+    for rel in (
+        'supervisor.json',
+        'scripts/shared.cjs',
+        'scripts/session-start.cjs',
+        'scripts/pre-tool-use.cjs',
+        'scripts/post-tool-use.cjs',
+        'scripts/stop.cjs',
+    ):
+        content = _hook(rel)
+        if content:
+            result[workspace / '.github' / 'hooks' / rel] = content
+
+    return result
 
 
 def initialize_workspace(workspace: str | Path, force: bool = False) -> dict[str, Any]:
