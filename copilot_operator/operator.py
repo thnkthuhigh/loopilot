@@ -75,6 +75,7 @@ from .vscode_chat import (
     wait_for_completed_session,
     wait_for_session_file,
 )
+from .worker import Worker, WorkerStatus
 
 logger = get_logger('operator')
 
@@ -123,6 +124,9 @@ class CopilotOperator:
             else load_llm_config_from_env()
         )
         self._llm_brain: LLMBrain | None = LLMBrain(llm_config) if llm_config.is_ready else None
+
+        # Worker runtime — maintains context across iterations
+        self._worker = Worker(role='coder', max_iterations=config.max_iterations)
 
     def _live_print(self, msg: str) -> None:
         """Print a live progress line to stderr (only when live=True)."""
@@ -464,6 +468,17 @@ class CopilotOperator:
         self.runtime['lastPromptPath'] = str(prompt_path)
         self.runtime['updatedAt'] = self._now()
 
+        # Record iteration in worker for context continuity
+        self._worker.record_iteration(
+            iteration=iteration,
+            score=assessment.score,
+            decision_code=decision.reason_code,
+            summary=assessment.summary or '',
+            changed_files=record.get('changedFiles', []),
+            error=None,
+        )
+        self._worker.status = WorkerStatus.RUNNING
+
         # Track changed files for context enrichment in subsequent iterations
         try:
             changed = get_all_changed_files(self.config.workspace)
@@ -691,6 +706,11 @@ class CopilotOperator:
         full_intelligence = intelligence_text
         if llm_text:
             full_intelligence = f'{intelligence_text}\n\n## LLM Brain Analysis\n{llm_text}' if intelligence_text else llm_text
+
+        # Worker context — condensed history for session continuity
+        worker_context = self._worker.build_context_summary()
+        if worker_context:
+            full_intelligence = f'{full_intelligence}\n\n{worker_context}' if full_intelligence else worker_context
 
         context = build_prompt_context(
             history,
@@ -1087,6 +1107,10 @@ class CopilotOperator:
                         'LLM usage: %d calls, %d tokens, ~$%.4f',
                         stats['calls'], stats['total_tokens'], stats['estimated_cost_usd'],
                     )
+
+            # Worker status
+            self._worker.status = WorkerStatus.DONE if run_status == 'complete' else WorkerStatus.PAUSED
+            result['worker'] = self._worker.to_dict()
 
             # Auto-create PR on successful completion
             if run_status == 'complete' and self.config.auto_create_pr and self.config.github_token:

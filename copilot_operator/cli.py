@@ -435,6 +435,85 @@ def _get_version() -> str:
         return '1.0.0-dev'
 
 
+def _queue(
+    config_path: str | None,
+    workspace_override: str | None,
+    goals: list[str] | None,
+    goals_file: str | None,
+    max_iterations: int,
+    dry_run: bool,
+    live: bool,
+) -> int:
+    """Run multiple goals sequentially with a persistent worker."""
+    from .worker import Task, TaskQueue
+
+    # Collect goals
+    goal_list: list[str] = []
+    if goals:
+        goal_list.extend(goals)
+    if goals_file:
+        path = Path(goals_file)
+        if not path.exists():
+            print(_term_err(f'Goals file not found: {path}'), file=sys.stderr)
+            return 1
+        for line in path.read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            if line and not line.startswith('#'):
+                goal_list.append(line)
+    if not goal_list:
+        print(_term_err('No goals provided. Use --goals or --file.'), file=sys.stderr)
+        return 1
+
+    # Build task queue
+    queue = TaskQueue()
+    for goal_text in goal_list:
+        queue.enqueue(Task(goal=goal_text, source='queue'))
+
+    config = load_config(config_path, workspace_override)
+    if max_iterations:
+        config.max_iterations = max_iterations
+
+    results: list[dict] = []
+    total = len(goal_list)
+    completed = 0
+    failed = 0
+
+    print(f'[queue] {total} tasks queued', file=sys.stderr)
+    while True:
+        task = queue.dequeue()
+        if task is None:
+            break
+        idx = len(results) + 1
+        print(f'\n[queue] [{idx}/{total}] {task.goal[:80]}', file=sys.stderr)
+
+        operator = CopilotOperator(config, dry_run=dry_run, live=live)
+        try:
+            result = operator.run(task.goal)
+            queue.mark_complete(task.task_id, result)
+            status = result.get('status', 'unknown')
+            score = result.get('score', 'N/A')
+            print(f'[queue] [{idx}/{total}] {status} (score={score})', file=sys.stderr)
+            if status == 'complete':
+                completed += 1
+            else:
+                failed += 1
+            results.append({'taskId': task.task_id, 'goal': task.goal[:80], **result})
+        except Exception as exc:
+            queue.mark_failed(task.task_id, str(exc))
+            failed += 1
+            print(f'[queue] [{idx}/{total}] FAILED: {exc}', file=sys.stderr)
+            results.append({'taskId': task.task_id, 'goal': task.goal[:80], 'status': 'error', 'error': str(exc)})
+
+    summary = {
+        'total': total,
+        'completed': completed,
+        'failed': failed,
+        'results': results,
+    }
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0 if failed == 0 else 1
+
+
 def _benchmark(
     config_path: str | None,
     workspace_override: str | None,
@@ -636,6 +715,19 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument('--json', action='store_true', dest='output_json', help='Output results as JSON.')
     benchmark.set_defaults(handler=lambda args: _benchmark(
         args.config, args.workspace, args.benchmark_file, args.output_json,
+    ))
+
+    # --- Queue: run multiple goals sequentially ---
+    queue = subparsers.add_parser('queue', help='Run multiple goals sequentially from a file or arguments.')
+    _add_common_arguments(queue)
+    queue.add_argument('--goals', nargs='+', help='List of goals to run sequentially.')
+    queue.add_argument('--file', dest='goals_file', help='Path to file with one goal per line.')
+    queue.add_argument('--max-iterations', type=int, default=0, help='Max iterations per goal (0 = use config default).')
+    queue.add_argument('--dry-run', action='store_true')
+    queue.add_argument('--live', action='store_true')
+    queue.set_defaults(handler=lambda args: _queue(
+        args.config, args.workspace, args.goals, args.goals_file,
+        args.max_iterations, args.dry_run, args.live,
     ))
 
     return parser
