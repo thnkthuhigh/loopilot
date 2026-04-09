@@ -60,15 +60,33 @@ def focus_workspace(workspace: Path, config: OperatorConfig | None = None) -> No
     run_code_command(['--reuse-window', str(workspace)], cwd=workspace, timeout_seconds=60, retries=retries, retry_delay_seconds=delay)
 
 
+# Cache so we only open VS Code once per process
+_workspace_storage_cache: dict[str, Path] = {}
+
+
 def ensure_workspace_storage(config: OperatorConfig) -> Path:
-    focus_workspace(config.workspace, config)
-    deadline = time.time() + 20
-    while time.time() < deadline:
-        storage = find_workspace_storage(config.workspace)
-        if storage:
-            return storage
-        time.sleep(1)
-    raise VSCodeChatError(f'Could not resolve workspaceStorage for {config.workspace}.')
+    ws_key = str(config.workspace)
+    cached = _workspace_storage_cache.get(ws_key)
+    if cached and cached.exists():
+        return cached
+
+    # Check if workspaceStorage already exists (VS Code already open)
+    storage = find_workspace_storage(config.workspace)
+    if not storage:
+        # Only focus/open VS Code if storage doesn't exist yet
+        focus_workspace(config.workspace, config)
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            storage = find_workspace_storage(config.workspace)
+            if storage:
+                break
+            time.sleep(1)
+
+    if not storage:
+        raise VSCodeChatError(f'Could not resolve workspaceStorage for {config.workspace}.')
+
+    _workspace_storage_cache[ws_key] = storage
+    return storage
 
 
 def snapshot_chat_sessions(chat_dir: Path) -> dict[Path, float]:
@@ -83,7 +101,10 @@ def send_chat_prompt(
     add_files: Iterable[Path] | None = None,
     maximize: bool = False,
 ) -> None:
-    focus_workspace(config.workspace, config)
+    # NOTE: We do NOT call focus_workspace() here.
+    # `code chat --reuse-window` already focuses the correct window.
+    # Calling focus_workspace() separately caused duplicate window opens
+    # and VS Code trust dialogs (red error panels).
 
     # Windows command-line escaping can inflate prompt length 3-4x.
     # Write prompt to a file in the workspace and use --add-file to pass it.
