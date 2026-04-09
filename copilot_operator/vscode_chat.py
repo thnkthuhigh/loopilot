@@ -103,9 +103,10 @@ def send_chat_prompt(
     maximize: bool = False,
 ) -> None:
     # NOTE: We do NOT call focus_workspace() here.
-    # `code chat --reuse-window` already focuses the correct window.
-    # Calling focus_workspace() separately caused duplicate window opens
-    # and VS Code trust dialogs (red error panels).
+    # When multiple VS Code windows are open, `--reuse-window` targets whichever
+    # window is currently focused — not necessarily the correct workspace.
+    # Fix: focus the target workspace first, then send the chat command.
+    focus_workspace(config.workspace, config)
 
     # Windows command-line escaping can inflate prompt length 3-4x.
     # Write prompt to a file in the workspace and use --add-file to pass it.

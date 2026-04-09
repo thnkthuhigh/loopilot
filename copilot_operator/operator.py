@@ -89,6 +89,32 @@ from .worker import Worker, WorkerStatus
 
 logger = get_logger('operator')
 
+# --- Chat directory resolution ---
+
+# VS Code stores chat sessions in different locations across versions.
+# Search these paths (in priority order) under the workspaceStorage folder.
+_CHAT_DIR_CANDIDATES = [
+    Path('GitHub.copilot-chat') / 'transcripts',       # VS Code ~1.114+
+    Path('GitHub.copilot-chat') / 'chat-session-resources',  # Older versions
+    Path('chatSessions'),                                # Legacy
+]
+
+
+def _resolve_chat_dir(storage: Path) -> Path:
+    """Find the chat session directory under workspaceStorage, trying known locations."""
+    for candidate in _CHAT_DIR_CANDIDATES:
+        full = storage / candidate
+        if full.exists() and any(full.glob('*.json*')):
+            return full
+    # Fallback: check if any candidate dir exists even if empty
+    for candidate in _CHAT_DIR_CANDIDATES:
+        full = storage / candidate
+        if full.exists():
+            return full
+    # Default to the newest known path
+    return storage / _CHAT_DIR_CANDIDATES[0]
+
+
 # --- Error classification ---
 
 _FATAL_EXCEPTIONS = (FileNotFoundError, PermissionError, NotADirectoryError)
@@ -145,7 +171,7 @@ class CopilotOperator:
 
     def run(self, goal: str | None = None, resume: bool = False) -> dict[str, Any]:
         storage = ensure_workspace_storage(self.config)
-        chat_dir = storage / 'chatSessions'
+        chat_dir = _resolve_chat_dir(storage)
         chat_dir.mkdir(parents=True, exist_ok=True)
 
         goal_text, decision, iteration_start = self._prepare_run(goal, resume)
