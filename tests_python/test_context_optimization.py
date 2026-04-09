@@ -86,7 +86,11 @@ class TestMemoryFileChangedFiles(unittest.TestCase):
         op.runtime['allChangedFiles'] = ['a.py', 'b.py', 'c.py']
 
         memory = op._render_memory()
-        self.assertIn('Changed files: a.py', memory)
+        # Layer 2 has all changed files across iterations
+        self.assertIn('a.py', memory)
+        self.assertIn('b.py', memory)
+        self.assertIn('c.py', memory)
+        # Layer 3 shows only the last iteration's changed files
         self.assertIn('Changed files: b.py, c.py', memory)
 
 

@@ -514,6 +514,31 @@ def _queue(
     return 0 if failed == 0 else 1
 
 
+def _multi(
+    config_path: str | None,
+    workspace_override: str | None,
+    goal: str | None,
+    goal_file: str | None,
+    roles: list[str],
+    max_iterations: int,
+    dry_run: bool,
+    live: bool,
+) -> int:
+    """Run a multi-session plan with different roles."""
+    config = load_config(config_path, workspace_override)
+    goal_text = _read_goal(config_path, workspace_override, goal, goal_file)
+    if max_iterations:
+        config.max_iterations = max_iterations
+
+    operator = CopilotOperator(config, dry_run=dry_run, live=live)
+    result = operator.run_multi_session(goal_text, roles=roles)
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+    all_ok = all(s.get('status') == 'complete' for s in result.get('slots', []))
+    return 0 if all_ok else 1
+
+
 def _benchmark(
     config_path: str | None,
     workspace_override: str | None,
@@ -728,6 +753,21 @@ def build_parser() -> argparse.ArgumentParser:
     queue.set_defaults(handler=lambda args: _queue(
         args.config, args.workspace, args.goals, args.goals_file,
         args.max_iterations, args.dry_run, args.live,
+    ))
+
+    # --- Multi: run multi-session plan with roles (coder, reviewer, tester...) ---
+    multi = subparsers.add_parser('multi', help='Run a multi-session plan with different roles.')
+    _add_common_arguments(multi)
+    multi.add_argument('--goal', help='The goal for the multi-session plan.')
+    multi.add_argument('--goal-file', help='Read goal from file.')
+    multi.add_argument('--roles', nargs='+', default=['coder', 'reviewer'],
+                       help='Roles to run (default: coder reviewer). Options: coder, reviewer, tester, fixer, docs.')
+    multi.add_argument('--max-iterations', type=int, default=0, help='Max iterations per role.')
+    multi.add_argument('--dry-run', action='store_true')
+    multi.add_argument('--live', action='store_true')
+    multi.set_defaults(handler=lambda args: _multi(
+        args.config, args.workspace, args.goal, args.goal_file,
+        args.roles, args.max_iterations, args.dry_run, args.live,
     ))
 
     return parser

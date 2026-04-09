@@ -156,6 +156,37 @@ def detect_loops(history: list[dict[str, Any]], window: int = 3) -> list[LoopSig
             consecutive_count=len(codes),
         ))
 
+    # 6. Changed-files repeat: same set of files modified each iteration (diff dedup)
+    changed_sets: list[frozenset[str]] = []
+    for h in recent:
+        cf = h.get('changedFiles') or []
+        if cf:
+            changed_sets.append(frozenset(cf))
+    if len(changed_sets) >= 2 and len(set(changed_sets)) == 1:
+        signals.append(LoopSignal(
+            detected=True,
+            kind='diff_repeat',
+            detail=f'Same files changed in {len(changed_sets)} consecutive iterations: {", ".join(sorted(changed_sets[0])[:5])}.',
+            consecutive_count=len(changed_sets),
+        ))
+
+    # 7. Response content similarity: normalized response text is near-identical
+    response_hashes: list[str] = []
+    for h in recent:
+        resp = h.get('summary', '') + '|' + '|'.join(
+            b.get('item', '') for b in (h.get('blockers') or [])
+        )
+        response_hashes.append(_normalise_text(resp))
+    if len(response_hashes) >= 2:
+        unique_responses = set(response_hashes)
+        if len(unique_responses) == 1 and response_hashes[0]:
+            signals.append(LoopSignal(
+                detected=True,
+                kind='response_repeat',
+                detail=f'Near-identical response content repeated {len(response_hashes)} times.',
+                consecutive_count=len(response_hashes),
+            ))
+
     return signals
 
 
@@ -269,6 +300,33 @@ def recommend_strategy(
         hints.append(StrategyHint(
             action='escalate_profile',
             reason='Same blockers persist — current profile may lack the right approach.',
+            suggested_profile=_PROFILE_ESCALATION.get(current_profile, 'audit'),
+        ))
+
+    # --- Diff repeat: same files changed each time → no real progress ---
+    diff_loop = next((sig for sig in loops if sig.kind == 'diff_repeat'), None)
+    if diff_loop and diff_loop.consecutive_count >= 2:
+        hints.append(StrategyHint(
+            action='switch_baton',
+            reason=f'Same files modified {diff_loop.consecutive_count} times — changes are being undone/redone.',
+            suggested_prompt=(
+                'You are modifying the same files repeatedly without net progress. '
+                'STOP, re-read the full test output, and take a fundamentally different approach. '
+                'Consider whether your change is being overwritten or reverted by another fix.'
+            ),
+        ))
+
+    # --- Response repeat: LLM saying the same thing ---
+    response_loop = next((sig for sig in loops if sig.kind == 'response_repeat'), None)
+    if response_loop and response_loop.consecutive_count >= 2:
+        hints.append(StrategyHint(
+            action='escalate_profile',
+            reason='Response content is repeating — model is stuck in a loop.',
+            suggested_prompt=(
+                'Your responses have been nearly identical for multiple turns. '
+                'Break the pattern: read the workspace state fresh, list what has actually changed, '
+                'and identify what is DIFFERENT about the current situation.'
+            ),
             suggested_profile=_PROFILE_ESCALATION.get(current_profile, 'audit'),
         ))
 

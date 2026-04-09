@@ -69,6 +69,8 @@ class OperatorConfig:
     llm_config_raw: dict[str, Any] = field(default_factory=dict)
     escalation_policy: str = 'escalate'  # 'escalate' | 'block' | 'warn'
     large_diff_threshold: int = 200
+    max_llm_cost_usd: float = 0.0         # 0 = unlimited; stop run if LLM cost exceeds this
+    max_task_seconds: int = 0              # 0 = unlimited; wall-clock timeout per run
     auto_create_pr: bool = False
     github_token: str = field(default_factory=lambda: os.environ.get('GITHUB_TOKEN', ''))
 

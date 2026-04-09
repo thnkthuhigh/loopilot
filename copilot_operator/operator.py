@@ -55,6 +55,15 @@ from .repo_ops import (
     is_git_repo,
     pre_run_safety_check,
 )
+from .scheduler import (
+    create_scheduler_plan,
+    get_next_runnable_slot,
+    is_plan_complete,
+    mark_slot_complete,
+    mark_slot_running,
+    render_scheduler_plan,
+    update_plan_status,
+)
 from .session_store import extract_response_text, get_latest_request, request_needs_continue
 from .snapshot import (
     SnapshotManager,
@@ -151,8 +160,71 @@ class CopilotOperator:
         error_retry_count = 0
         _MAX_ERROR_RETRIES = self.config.max_error_retries
         _BACKOFF_BASE = self.config.error_backoff_base_seconds
+        try:
+            _run_start_time = time.monotonic()
+        except (TypeError, AttributeError):
+            _run_start_time = 0
 
         for iteration in range(iteration_start, self.config.max_iterations + 1):
+            # --- Cost ceiling check ---
+            _raw_cost = getattr(self.config, 'max_llm_cost_usd', None)
+            _cost_limit = _raw_cost if isinstance(_raw_cost, (int, float)) else 0.0
+            if _cost_limit > 0 and self._llm_brain and hasattr(self._llm_brain, 'stats'):
+                cost = self._llm_brain.stats.get('estimated_cost_usd', 0)
+                if cost >= self.config.max_llm_cost_usd:
+                    self.runtime['status'] = 'blocked'
+                    self.runtime['finishedAt'] = self._now()
+                    self.runtime['finalReason'] = f'LLM cost ceiling reached: ${cost:.4f} >= ${_cost_limit:.4f}'
+                    self.runtime['finalReasonCode'] = 'COST_CEILING_REACHED'
+                    self.runtime['pendingDecision'] = {
+                        'action': 'continue',
+                        'reason': 'Cost ceiling reached — can be resumed with higher limit.',
+                        'reasonCode': 'COST_CEILING_REACHED',
+                        'nextPrompt': decision.next_prompt,
+                    }
+                    self._write_runtime()
+                    result = {
+                        'status': 'blocked',
+                        'reason': f'LLM cost ceiling reached: ${cost:.4f}',
+                        'reasonCode': 'COST_CEILING_REACHED',
+                        'iterations': iteration - 1,
+                        'stateFile': str(self.config.state_file),
+                    }
+                    dump_json(self.config.summary_file, result)
+                    self._post_run_hooks(result)
+                    return result
+
+            # --- Time ceiling check ---
+            _raw_time = getattr(self.config, 'max_task_seconds', None)
+            _time_limit = _raw_time if isinstance(_raw_time, (int, float)) else 0
+            if _time_limit > 0:
+                try:
+                    elapsed = float(time.monotonic() - _run_start_time)
+                except (TypeError, AttributeError, ValueError):
+                    elapsed = 0.0
+                if elapsed >= _time_limit:
+                    self.runtime['status'] = 'blocked'
+                    self.runtime['finishedAt'] = self._now()
+                    self.runtime['finalReason'] = f'Time ceiling reached: {elapsed:.0f}s >= {_time_limit}s'
+                    self.runtime['finalReasonCode'] = 'TIME_CEILING_REACHED'
+                    self.runtime['pendingDecision'] = {
+                        'action': 'continue',
+                        'reason': 'Time ceiling reached — can be resumed.',
+                        'reasonCode': 'TIME_CEILING_REACHED',
+                        'nextPrompt': decision.next_prompt,
+                    }
+                    self._write_runtime()
+                    result = {
+                        'status': 'blocked',
+                        'reason': f'Time ceiling reached: {elapsed:.0f}s',
+                        'reasonCode': 'TIME_CEILING_REACHED',
+                        'iterations': iteration - 1,
+                        'stateFile': str(self.config.state_file),
+                    }
+                    dump_json(self.config.summary_file, result)
+                    self._post_run_hooks(result)
+                    return result
+
             try:
                 result = self._run_iteration(iteration, goal_text, decision, chat_dir)
                 if result is not None:
@@ -873,30 +945,46 @@ class CopilotOperator:
     def _render_memory(self) -> str:
         history = self.runtime.get('history', [])
         plan_snapshot = summarize_plan(self.runtime.get('plan'))
+
+        # --- Layer 1: Repo Memory (permanent / cross-run context) ---
         lines = [
             '# Copilot Operator Memory',
             '',
+            '## Layer 1 — Repo Context (persistent)',
+            f"- Workspace: {self.runtime.get('workspace', '')}",
+            f"- Ecosystem: {self.config.workspace_insight.ecosystem}",
+            f"- Package manager: {self.config.workspace_insight.package_manager or 'unknown'}",
+            f"- Mode: {self.runtime.get('mode', '')}",
+        ]
+        if self.config.repo_profile.repo_name:
+            lines.append(f"- Repo: {self.config.repo_profile.repo_name}")
+        if self.config.repo_profile.summary:
+            lines.append(f"- Repo summary: {self.config.repo_profile.summary}")
+        lines.append(render_brain_status(self._llm_brain))
+
+        # Add project brain insights (cross-run learnings)
+        if hasattr(self, '_project_insights'):
+            brain_text = render_insights_for_memory(self._project_insights)
+            if brain_text:
+                lines.append(brain_text)
+
+        # --- Layer 2: Task Memory (current run context) ---
+        lines.extend([
+            '',
+            '## Layer 2 — Task Context (this run)',
             f"- Goal: {self.runtime.get('goal', '')}",
             f"- Goal profile: {self.runtime.get('goalProfile', self.config.goal_profile)}",
-            f"- Workspace: {self.runtime.get('workspace', '')}",
-            f"- Mode: {self.runtime.get('mode', '')}",
             f"- Target score: {self.runtime.get('targetScore', '')}",
             f"- Current status: {self.runtime.get('status', '')}",
             f"- Run ID: {self.runtime.get('runId', '')}",
             f"- Run log directory: {self.runtime.get('logDir', '')}",
-            f"- Workspace ecosystem: {self.config.workspace_insight.ecosystem}",
-            f"- Package manager: {self.config.workspace_insight.package_manager or 'unknown'}",
             f"- Current milestone: {plan_snapshot.get('currentMilestoneId', '')}",
             f"- Current task: {plan_snapshot.get('currentTaskId', '')}",
-        ]
+        ])
         if plan_snapshot.get('summary'):
             lines.append(f"- Plan summary: {plan_snapshot['summary']}")
-        if self.config.repo_profile.repo_name:
-            lines.append(f"- Repo profile: {self.config.repo_profile.repo_name}")
-        lines.append(render_brain_status(self._llm_brain))
-        if self.config.repo_profile.summary:
-            lines.append(f"- Repo summary: {self.config.repo_profile.summary}")
-        lines.extend(['', '## Milestones'])
+
+        lines.extend(['', '### Milestones'])
         milestones = plan_snapshot.get('milestones', []) or []
         if milestones:
             for milestone in milestones:
@@ -905,72 +993,80 @@ class CopilotOperator:
                 )
         else:
             lines.append('- No milestone plan recorded yet.')
-        lines.extend(['', '## Recent Iterations'])
-        if not history:
-            lines.append('- No iterations have completed yet.')
-            # Add project brain insights if available
-            if hasattr(self, '_project_insights'):
-                brain_text = render_insights_for_memory(self._project_insights)
-                if brain_text:
-                    lines.append(brain_text)
-            return '\n'.join(lines) + '\n'
 
-        # Changed files summary
+        # Changed files summary (task-level)
         all_changed = self.runtime.get('allChangedFiles', [])
         if all_changed:
-            lines.extend(['', '## Files Changed Across Iterations'])
+            lines.extend(['', '### Files Changed Across Iterations'])
             for f in all_changed[:30]:
                 lines.append(f'- {f}')
             if len(all_changed) > 30:
                 lines.append(f'- ... and {len(all_changed) - 30} more')
 
-        for item in history[-5:]:
-            summary = str(item.get('summary', ''))[:200]
-            next_prompt = str(item.get('next_prompt', ''))[:200]
-            decision_next = str(item.get('decisionNextPrompt', ''))[:200]
-            lines.extend(
-                [
-                    '',
-                    f"### Iteration {item.get('iteration', 'n/a')}",
-                    f"- Session: {item.get('sessionId', 'n/a')}",
-                    f"- Status: {item.get('status', 'unknown')}",
-                    f"- Score: {item.get('score', 'n/a')}",
-                    f"- Needs continue: {item.get('needs_continue', False)}",
-                    f"- Decision code: {item.get('decisionCode', '')}",
-                    f"- Current milestone: {item.get('currentMilestoneId', '')}",
-                    f"- Current task: {item.get('currentTaskId', '')}",
-                    f"- Summary: {summary}",
-                    f"- Next prompt from Copilot: {next_prompt}",
-                    f"- Next prompt from operator: {decision_next}",
-                    f"- Tests: {item.get('tests', 'not_run')}",
-                    f"- Lint: {item.get('lint', 'not_run')}",
-                ]
-            )
-            blockers = item.get('blockers') or []
-            if blockers:
-                lines.append('- Blockers:')
-                for blocker in blockers:
-                    lines.append(f"  - {blocker.get('severity', 'unknown')}: {blocker.get('item', '')}")
-            changed_files = item.get('changedFiles') or []
-            if changed_files:
-                lines.append(f'- Changed files: {", ".join(changed_files[:10])}')
-                if len(changed_files) > 10:
-                    lines.append(f'  ... and {len(changed_files) - 10} more')
-            validations = item.get('validation_after') or []
-            if validations:
-                lines.append('- Operator validations after response:')
-                for validation in validations:
-                    source = validation.get('source', '')
-                    source_text = f"; source={source}" if source else ''
-                    lines.append(
-                        f"  - {validation['name']}: {validation['status']} ({validation.get('summary', '')}){source_text}"
-                    )
+        if not history:
+            lines.append('')
+            lines.append('- No iterations have completed yet.')
+            return '\n'.join(lines) + '\n'
 
-        # Add project brain insights
-        if hasattr(self, '_project_insights'):
-            brain_text = render_insights_for_memory(self._project_insights)
-            if brain_text:
-                lines.append(brain_text)
+        # --- Layer 3: Delta Memory (last iteration only — volatile) ---
+        last = history[-1]
+        summary_text = str(last.get('summary', ''))[:300]
+        next_prompt = str(last.get('next_prompt', ''))[:200]
+        decision_next = str(last.get('decisionNextPrompt', ''))[:200]
+        lines.extend([
+            '',
+            '## Layer 3 — Last Iteration Delta (volatile)',
+            f"- Iteration: {last.get('iteration', 'n/a')}",
+            f"- Score: {last.get('score', 'n/a')}",
+            f"- Status: {last.get('status', 'unknown')}",
+            f"- Decision code: {last.get('decisionCode', '')}",
+            f"- Summary: {summary_text}",
+            f"- Next prompt from Copilot: {next_prompt}",
+            f"- Next prompt from operator: {decision_next}",
+            f"- Tests: {last.get('tests', 'not_run')}",
+            f"- Lint: {last.get('lint', 'not_run')}",
+        ])
+        last_blockers = last.get('blockers') or []
+        if last_blockers:
+            lines.append('- Blockers:')
+            for blocker in last_blockers:
+                lines.append(f"  - {blocker.get('severity', 'unknown')}: {blocker.get('item', '')}")
+        last_changed = last.get('changedFiles') or []
+        if last_changed:
+            lines.append(f'- Changed files: {", ".join(last_changed[:10])}')
+        last_validations = last.get('validation_after') or []
+        if last_validations:
+            lines.append('- Operator validations:')
+            for v in last_validations:
+                source = v.get('source', '')
+                source_text = f"; source={source}" if source else ''
+                lines.append(f"  - {v['name']}: {v['status']} ({v.get('summary', '')}){source_text}")
+
+        # --- Layer 4: Failure Lessons (patterns that failed — cross-iteration) ---
+        # Extract iterations where score decreased or stayed stuck
+        failure_lessons: list[str] = []
+        for i in range(1, len(history)):
+            prev_score = history[i - 1].get('score')
+            curr_score = history[i].get('score')
+            if prev_score is not None and curr_score is not None and curr_score <= prev_score:
+                iter_num = history[i].get('iteration', i)
+                summary = str(history[i].get('summary', ''))[:120]
+                code = history[i].get('decisionCode', '')
+                failure_lessons.append(
+                    f"- Iter {iter_num} (score {prev_score}→{curr_score}, {code}): {summary}"
+                )
+        if failure_lessons:
+            lines.extend([
+                '',
+                '## Layer 4 — Failure Lessons (avoid repeating)',
+                'The following iterations did NOT improve the score — avoid their approach:',
+            ])
+            lines.extend(failure_lessons[-5:])  # Keep last 5 failures
+
+        # Brief score trajectory for context
+        if len(history) >= 2:
+            trajectory = [f"{h.get('iteration')}:{h.get('score', '?')}" for h in history[-5:]]
+            lines.extend(['', f"**Score trajectory**: {' → '.join(trajectory)}"])
 
         lines.append('')
         return '\n'.join(lines)
@@ -1070,6 +1166,68 @@ class CopilotOperator:
             logger.debug('Repo map build failed: %s', exc)
             self._cached_repo_map_text = ''
             return ''
+
+    def run_multi_session(
+        self,
+        goal: str,
+        roles: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Run a multi-session plan with different roles (coder, reviewer, tester, etc.).
+
+        Each role runs sequentially, respecting dependency order.
+        Returns aggregate result with per-slot outcomes.
+        """
+        plan = create_scheduler_plan(goal, roles=roles or ['coder', 'reviewer'])
+        plan.status = 'running'
+        logger.info('Multi-session plan created: %d slots, roles=%s',
+                     len(plan.slots), [s.role for s in plan.slots])
+        self._live_print(f'\n{bold("Multi-session plan")}:\n{render_scheduler_plan(plan)}\n')
+
+        while not is_plan_complete(plan):
+            slot = get_next_runnable_slot(plan)
+            if slot is None:
+                logger.warning('No runnable slot found — remaining slots may be blocked by dependencies.')
+                break
+
+            mark_slot_running(slot, str(uuid4()))
+            logger.info('Running slot: role=%s goal_profile=%s', slot.role, slot.goal_profile)
+            self._live_print(f'\n{cyan(f"[{slot.role}]")} Starting session...')
+
+            # Create a fresh operator for each slot with slot-specific config
+            from dataclasses import replace as dc_replace
+            slot_config = dc_replace(
+                self.config,
+                goal_profile=slot.goal_profile,
+            )
+            slot_operator = CopilotOperator(slot_config, dry_run=self.dry_run, live=self.live)
+            try:
+                result = slot_operator.run(goal=slot.goal)
+            except Exception as exc:
+                result = {'status': 'error', 'reason': str(exc), 'reasonCode': 'SLOT_ERROR'}
+
+            mark_slot_complete(slot, result)
+            self._live_print(
+                f'{cyan(f"[{slot.role}]")} '
+                f'Finished: status={result.get("status")}, score={result.get("score", "n/a")}'
+            )
+
+        update_plan_status(plan)
+        logger.info('Multi-session plan complete: status=%s', plan.status)
+        self._live_print(f'\n{bold("Final plan status")}:\n{render_scheduler_plan(plan)}\n')
+
+        return {
+            'status': plan.status,
+            'planId': plan.plan_id,
+            'slots': [
+                {
+                    'role': s.role,
+                    'status': s.status,
+                    'score': s.final_score,
+                    'reasonCode': s.final_reason_code,
+                }
+                for s in plan.slots
+            ],
+        }
 
     def _post_run_hooks(self, result: dict[str, Any]) -> None:
         """Run after every completed/blocked run: meta-learning, cross-repo export, snapshot summary, PR creation."""
