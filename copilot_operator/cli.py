@@ -539,6 +539,88 @@ def _multi(
     return 0 if all_ok else 1
 
 
+def _dashboard(
+    config_path: str | None,
+    workspace_override: str | None,
+    interval: float,
+    count: int | None,
+    no_clear: bool,
+) -> int:
+    """Run the live terminal dashboard."""
+    from .dashboard import run_dashboard
+
+    config = load_config(config_path, workspace_override)
+    run_dashboard(config.state_file, interval=interval, count=count, clear=not no_clear)
+    return 0
+
+
+def _nightly(
+    config_path: str | None,
+    workspace_override: str | None,
+    goals_file: str | None,
+    max_iterations: int,
+    dry_run: bool,
+) -> int:
+    """Run overnight delivery loop."""
+    from .nightly import NightlyConfig, collect_nightly_goals, run_nightly
+
+    config = load_config(config_path, workspace_override)
+    nightly_cfg = NightlyConfig(
+        goals_file=Path(goals_file) if goals_file else None,
+        max_iterations_per_task=max_iterations,
+        dry_run=dry_run,
+    )
+    goals = collect_nightly_goals(nightly_cfg, config.workspace)
+    if not goals:
+        print(_term_err('No goals found. Provide --file with one goal per line.'), file=sys.stderr)
+        return 1
+
+    print(f'[nightly] {len(goals)} task(s) queued', file=sys.stderr)
+    report = run_nightly(config.workspace, goals, max_iterations=max_iterations, dry_run=dry_run)
+    print(report.render_text())
+    return 0 if report.failed == 0 else 1
+
+
+def _roi(
+    config_path: str | None,
+    workspace_override: str | None,
+    output_json: bool,
+) -> int:
+    """Show ROI analytics."""
+    from .roi import analyse_roi
+
+    config = load_config(config_path, workspace_override)
+    metrics = analyse_roi(config.log_dir)
+
+    if output_json:
+        print(json.dumps(metrics.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(metrics.render_text())
+    return 0
+
+
+def _policy(
+    config_path: str | None,
+    workspace_override: str | None,
+    show_audit: bool,
+    limit: int,
+) -> int:
+    """View policy rules or audit trail."""
+    from .policy import PolicyEngine
+
+    engine = PolicyEngine()
+    if show_audit:
+        trail = engine.get_audit_trail(limit=limit)
+        if not trail:
+            print('No audit trail entries found.')
+        else:
+            for entry in trail:
+                print(json.dumps(entry, ensure_ascii=False))
+    else:
+        print(engine.render_rules())
+    return 0
+
+
 def _benchmark(
     config_path: str | None,
     workspace_override: str | None,
@@ -572,11 +654,13 @@ def _fix_issue(
     goal_profile: str,
     max_iterations: int | None,
     dry_run: bool,
+    sync: bool = False,
+    auto_close: bool = False,
 ) -> int:
     """Fetch a GitHub issue and run the operator loop to fix it."""
     import os
 
-    from .github_integration import GitHubConfig, get_issue, issue_to_goal
+    from .github_integration import GitHubConfig, get_issue, issue_to_goal, sync_issue_status
 
     config = load_config(config_path, workspace_override)
 
@@ -604,7 +688,85 @@ def _fix_issue(
 
     operator = CopilotOperator(config, dry_run=dry_run)
     result = operator.run(goal)
+
+    # Sync result back to GitHub issue
+    if sync and not dry_run:
+        print(f'[fix-issue] Syncing result to issue #{issue_number}...', file=sys.stderr)
+        try:
+            sync_issue_status(gh_config, issue_number, result, auto_close=auto_close)
+            print(f'[fix-issue] Issue #{issue_number} updated.', file=sys.stderr)
+        except Exception as exc:
+            print(f'[fix-issue] Warning: sync failed: {exc}', file=sys.stderr)
+
     print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _issues(
+    config_path: str | None,
+    workspace_override: str | None,
+    repo_override: str | None,
+    labels: list[str] | None,
+    limit: int,
+    run_all: bool,
+    max_iterations: int | None,
+    dry_run: bool,
+    live: bool,
+    sync: bool,
+) -> int:
+    """List or batch-process GitHub issues."""
+    import os
+
+    from .github_integration import (
+        GitHubConfig,
+        batch_process_issues,
+        sync_issue_status,
+    )
+
+    config = load_config(config_path, workspace_override)
+    repo = repo_override or config.repo_profile.repo_name
+    if not repo or '/' not in repo:
+        raise SystemExit('Provide --repo owner/repo or set repoName in repo-profile.yml')
+    owner, repo_name = repo.split('/', 1)
+    token = config.github_token or os.environ.get('GITHUB_TOKEN', '')
+    if not token:
+        raise SystemExit('GITHUB_TOKEN required.')
+
+    gh_config = GitHubConfig(token=token, owner=owner, repo=repo_name)
+    issues = batch_process_issues(gh_config, labels=labels, limit=limit)
+
+    if not issues:
+        print('[issues] No open unassigned issues found.', file=sys.stderr)
+        return 0
+
+    if not run_all:
+        # List mode — just show the issues
+        for item in issues:
+            labels_str = ', '.join(item['labels']) if item['labels'] else 'none'
+            print(f"  #{item['number']:>5}  [{labels_str}]  {item['title']}")
+        print(f'\n{len(issues)} issue(s). Use --run-all to process them.', file=sys.stderr)
+        return 0
+
+    # Batch processing mode
+    if max_iterations:
+        config.max_iterations = max_iterations
+
+    results = []
+    for idx, item in enumerate(issues, 1):
+        print(f"\n[issues] [{idx}/{len(issues)}] #{item['number']}: {item['title']}", file=sys.stderr)
+        operator = CopilotOperator(config, dry_run=dry_run, live=live)
+        try:
+            result = operator.run(item['goal'])
+            if sync and not dry_run:
+                try:
+                    sync_issue_status(gh_config, item['number'], result)
+                except Exception:
+                    pass
+            results.append({'issue': item['number'], **result})
+        except Exception as exc:
+            results.append({'issue': item['number'], 'status': 'error', 'error': str(exc)})
+
+    print(json.dumps(results, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -727,8 +889,27 @@ def build_parser() -> argparse.ArgumentParser:
     fix_issue.add_argument('--goal-profile', choices=['default', 'bug', 'feature', 'refactor', 'audit', 'docs'], default='bug')
     fix_issue.add_argument('--max-iterations', type=int, help='Override max iterations.')
     fix_issue.add_argument('--dry-run', action='store_true', help='Generate prompt without executing.')
+    fix_issue.add_argument('--sync', action='store_true', help='Sync result back to GitHub issue (labels + comment).')
+    fix_issue.add_argument('--auto-close', action='store_true', help='Close the issue if operator completes successfully.')
     fix_issue.set_defaults(handler=lambda args: _fix_issue(
-        args.config, args.workspace, args.issue, args.repo, args.goal_profile, args.max_iterations, args.dry_run,
+        args.config, args.workspace, args.issue, args.repo, args.goal_profile,
+        args.max_iterations, args.dry_run, args.sync, args.auto_close,
+    ))
+
+    # --- Issues: list or batch-process GitHub issues ---
+    issues_cmd = subparsers.add_parser('issues', help='List or batch-process open GitHub issues.')
+    _add_common_arguments(issues_cmd)
+    issues_cmd.add_argument('--repo', help='GitHub repo as owner/repo.')
+    issues_cmd.add_argument('--labels', nargs='+', help='Filter by label (e.g. bug enhancement).')
+    issues_cmd.add_argument('--limit', type=int, default=10, help='Max issues to list/process.')
+    issues_cmd.add_argument('--run-all', action='store_true', help='Process all listed issues sequentially.')
+    issues_cmd.add_argument('--max-iterations', type=int, help='Max iterations per issue.')
+    issues_cmd.add_argument('--dry-run', action='store_true')
+    issues_cmd.add_argument('--live', action='store_true')
+    issues_cmd.add_argument('--sync', action='store_true', help='Sync results back to GitHub.')
+    issues_cmd.set_defaults(handler=lambda args: _issues(
+        args.config, args.workspace, args.repo, args.labels, args.limit,
+        args.run_all, args.max_iterations, args.dry_run, args.live, args.sync,
     ))
 
     version = subparsers.add_parser('version', help='Print the operator version.')
@@ -769,6 +950,35 @@ def build_parser() -> argparse.ArgumentParser:
         args.config, args.workspace, args.goal, args.goal_file,
         args.roles, args.max_iterations, args.dry_run, args.live,
     ))
+
+    # --- Dashboard: live terminal UI ---
+    dash = subparsers.add_parser('dashboard', help='Live terminal dashboard for monitoring operator runs.')
+    _add_common_arguments(dash)
+    dash.add_argument('--interval', type=float, default=2.0, help='Refresh interval in seconds.')
+    dash.add_argument('--count', type=int, help='Number of updates before exiting.')
+    dash.add_argument('--no-clear', action='store_true', help='Do not clear screen between frames.')
+    dash.set_defaults(handler=lambda args: _dashboard(args.config, args.workspace, args.interval, args.count, args.no_clear))
+
+    # --- Nightly: overnight delivery loop ---
+    nightly = subparsers.add_parser('nightly', help='Run overnight delivery loop with goals from file.')
+    _add_common_arguments(nightly)
+    nightly.add_argument('--file', dest='goals_file', help='Path to file with one goal per line.')
+    nightly.add_argument('--max-iterations', type=int, default=6, help='Max iterations per task.')
+    nightly.add_argument('--dry-run', action='store_true')
+    nightly.set_defaults(handler=lambda args: _nightly(args.config, args.workspace, args.goals_file, args.max_iterations, args.dry_run))
+
+    # --- ROI: analytics and metrics ---
+    roi_cmd = subparsers.add_parser('roi', help='Show ROI analytics from past operator runs.')
+    _add_common_arguments(roi_cmd)
+    roi_cmd.add_argument('--json', action='store_true', dest='output_json', help='Output as JSON.')
+    roi_cmd.set_defaults(handler=lambda args: _roi(args.config, args.workspace, args.output_json))
+
+    # --- Policy: view and audit policy rules ---
+    policy_cmd = subparsers.add_parser('policy', help='View policy rules and audit trail.')
+    _add_common_arguments(policy_cmd)
+    policy_cmd.add_argument('--audit', action='store_true', help='Show recent audit trail.')
+    policy_cmd.add_argument('--limit', type=int, default=20, help='Number of audit entries to show.')
+    policy_cmd.set_defaults(handler=lambda args: _policy(args.config, args.workspace, args.audit, args.limit))
 
     return parser
 

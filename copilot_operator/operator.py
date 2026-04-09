@@ -1270,8 +1270,34 @@ class CopilotOperator:
             self._worker.status = WorkerStatus.DONE if run_status == 'complete' else WorkerStatus.PAUSED
             result['worker'] = self._worker.to_dict()
 
-            # Auto-create PR on successful completion
-            if run_status == 'complete' and self.config.auto_create_pr and self.config.github_token:
+            # Policy engine evaluation before PR creation
+            try:
+                from .policy import PolicyEngine, PolicyVerdict
+                engine = PolicyEngine()
+                changed_count = len(self.runtime.get('allChangedFiles', []))
+                policy_context = {
+                    'changed_files_count': changed_count,
+                    'iteration_count': len(history),
+                    'score_below': result.get('score'),
+                }
+                if self._llm_brain:
+                    policy_context['llm_cost_usd'] = self._llm_brain.stats.get('estimated_cost_usd', 0)
+                policy_decision = engine.evaluate('post_run', policy_context)
+                result['policyVerdict'] = policy_decision.verdict
+                if policy_decision.triggered_rules:
+                    result['policyTriggered'] = policy_decision.triggered_rules
+                    logger.info('Policy verdict: %s (rules: %s)', policy_decision.verdict,
+                                ', '.join(policy_decision.triggered_rules))
+                # Block PR creation if policy says so
+                if policy_decision.verdict == PolicyVerdict.BLOCK:
+                    logger.warning('Policy blocked PR creation')
+                    result['prBlocked'] = True
+            except Exception:
+                pass  # Policy is best-effort
+
+            # Auto-create PR on successful completion (unless policy blocked)
+            if (run_status == 'complete' and self.config.auto_create_pr
+                    and self.config.github_token and not result.get('prBlocked')):
                 self._try_create_pr(result)
         except Exception:
             pass  # Post-run hooks are best-effort

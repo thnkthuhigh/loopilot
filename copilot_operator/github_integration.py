@@ -311,3 +311,116 @@ def pick_next_issue(
     all_issues = list_issues(config, limit=5)
     unassigned_all = [i for i in all_issues if not i.assignee]
     return unassigned_all[0] if unassigned_all else None
+
+
+# ---------------------------------------------------------------------------
+# Issue lifecycle — status updates and sync
+# ---------------------------------------------------------------------------
+
+def update_issue_labels(
+    config: GitHubConfig,
+    number: int,
+    add_labels: list[str] | None = None,
+    remove_labels: list[str] | None = None,
+) -> None:
+    """Add and/or remove labels on an issue."""
+    if add_labels:
+        _api_request(config, 'POST', f'/issues/{number}/labels', {'labels': add_labels})
+    for label in (remove_labels or []):
+        try:
+            _api_request(config, 'DELETE', f'/issues/{number}/labels/{urllib.parse.quote(label)}')
+        except RuntimeError:
+            pass  # Label may not exist
+
+
+def close_issue(config: GitHubConfig, number: int, comment: str = '') -> None:
+    """Close an issue, optionally adding a comment."""
+    if comment:
+        add_issue_comment(config, number, comment)
+    _api_request(config, 'PATCH', f'/issues/{number}', {'state': 'closed'})
+
+
+def post_run_summary_to_issue(
+    config: GitHubConfig,
+    issue_number: int,
+    result: dict[str, Any],
+) -> None:
+    """Post a structured summary of an operator run as an issue comment."""
+    status = result.get('status', 'unknown')
+    score = result.get('score', 'N/A')
+    iterations = result.get('iterations', 0)
+    reason_code = result.get('reasonCode', '')
+
+    status_emoji = {'complete': '✅', 'blocked': '⚠️', 'error': '❌'}.get(status, '❓')
+
+    body = (
+        f'## {status_emoji} Copilot Operator Run Report\n\n'
+        f'| Metric | Value |\n|--------|-------|\n'
+        f'| Status | **{status}** |\n'
+        f'| Score | {score} |\n'
+        f'| Iterations | {iterations} |\n'
+        f'| Reason | `{reason_code}` |\n'
+    )
+
+    pr_info = result.get('pullRequest')
+    if pr_info:
+        body += f'\n**PR:** [{pr_info.get("title", "")}]({pr_info.get("url", "")})\n'
+
+    body += '\n---\n*Automated by Copilot Operator*'
+    add_issue_comment(config, issue_number, body)
+
+
+def sync_issue_status(
+    config: GitHubConfig,
+    issue_number: int,
+    result: dict[str, Any],
+    auto_close: bool = False,
+) -> None:
+    """Sync operator result back to GitHub issue (labels + comment + optional close)."""
+    status = result.get('status', 'unknown')
+
+    # Label management
+    if status == 'complete':
+        update_issue_labels(config, issue_number,
+                            add_labels=['operator:done'],
+                            remove_labels=['operator:in-progress', 'operator:blocked'])
+    elif status == 'blocked':
+        update_issue_labels(config, issue_number,
+                            add_labels=['operator:blocked'],
+                            remove_labels=['operator:in-progress'])
+    else:
+        update_issue_labels(config, issue_number,
+                            add_labels=['operator:in-progress'])
+
+    # Post run summary
+    post_run_summary_to_issue(config, issue_number, result)
+
+    # Auto-close on success
+    if auto_close and status == 'complete':
+        score = result.get('score')
+        if score is not None and score >= 85:
+            close_issue(config, issue_number,
+                        f'Closed by Copilot Operator (score={score}).')
+
+
+def batch_process_issues(
+    config: GitHubConfig,
+    labels: list[str] | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """List issues suitable for batch processing by the operator.
+
+    Returns a list of dicts with issue info + generated goal text.
+    """
+    issues = list_issues(config, labels=labels, limit=limit)
+    return [
+        {
+            'number': issue.number,
+            'title': issue.title,
+            'labels': issue.labels,
+            'goal': issue_to_goal(issue),
+            'url': issue.url,
+        }
+        for issue in issues
+        if not issue.assignee  # Only unassigned issues
+    ]
