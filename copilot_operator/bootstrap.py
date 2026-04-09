@@ -519,6 +519,15 @@ def _apply_auto_approve_keys(existing: dict) -> bool:
     if existing.get('chat.tools.edits.autoApprove') != {'**': True}:
         existing['chat.tools.edits.autoApprove'] = {'**': True}
         changed = True
+    # Auto-save prevents "Do you want to save?" dialogs when the operator
+    # modifies files (e.g. copilot-operator.yml hydration) or switches workspace.
+    if existing.get('files.autoSave') != 'afterDelay':
+        existing['files.autoSave'] = 'afterDelay'
+        changed = True
+    # hotExit avoids save prompts when VS Code windows close or switch workspace.
+    if existing.get('files.hotExit') != 'onExitAndWindowClose':
+        existing['files.hotExit'] = 'onExitAndWindowClose'
+        changed = True
     return changed
 
 
@@ -700,6 +709,40 @@ def initialize_workspace(workspace: str | Path, force: bool = False, detect_hint
         'ecosystem': ecosystem,
         'hydratedValidation': hydrated,
     }
+
+
+def cleanup_old_sessions(
+    workspace: str | Path,
+    max_age_days: int = 7,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Remove old operator session artifacts (prompt files, state snapshots).
+
+    Cleans up .copilot-operator/current-prompt.md and old snapshot files
+    that are older than *max_age_days*.
+    """
+    workspace_path = Path(workspace).resolve()
+    op_dir = workspace_path / '.copilot-operator'
+    if not op_dir.exists():
+        return {'removed': [], 'skipped': [], 'dryRun': dry_run}
+
+    import time
+    cutoff = time.time() - (max_age_days * 86400)
+    removed: list[str] = []
+    skipped: list[str] = []
+
+    # Clean old prompt files and snapshot JSONs (not state.json or memory.md)
+    _CLEANABLE_PATTERNS = ['current-prompt.md', 'snapshots/*.json']
+    for pattern in _CLEANABLE_PATTERNS:
+        for path in op_dir.glob(pattern):
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                if dry_run:
+                    skipped.append(str(path))
+                else:
+                    path.unlink()
+                    removed.append(str(path))
+
+    return {'removed': removed, 'skipped': skipped, 'dryRun': dry_run}
 
 
 def cleanup_run_logs(

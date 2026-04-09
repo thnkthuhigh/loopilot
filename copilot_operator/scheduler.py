@@ -6,7 +6,9 @@ with different roles (coder, reviewer, tester) and merging their results.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -243,3 +245,192 @@ def render_scheduler_plan(plan: SchedulerPlan) -> str:
         reason_text = f', reason={slot.final_reason_code}' if slot.final_reason_code else ''
         lines.append(f'  [{slot.status}] {slot.role} ({slot.goal_profile}){score_text}{reason_text}')
     return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# File conflict avoidance
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class FileLock:
+    """Tracks which session owns which files to prevent conflicts."""
+    slot_id: str
+    role: str
+    files: set[str] = field(default_factory=set)
+
+
+class FileConflictTracker:
+    """Prevents concurrent sessions from modifying the same files."""
+
+    def __init__(self) -> None:
+        self._locks: dict[str, FileLock] = {}  # file_path -> FileLock
+
+    def claim_files(self, slot_id: str, role: str, files: list[str]) -> list[str]:
+        """Attempt to claim files for a session. Returns list of conflicts."""
+        conflicts: list[str] = []
+        for f in files:
+            existing = self._locks.get(f)
+            if existing and existing.slot_id != slot_id:
+                conflicts.append(f'{f} (owned by {existing.role}/{existing.slot_id[:8]})')
+            else:
+                self._locks[f] = FileLock(slot_id=slot_id, role=role, files={f})
+        return conflicts
+
+    def release_files(self, slot_id: str) -> None:
+        """Release all file claims for a session."""
+        self._locks = {f: lock for f, lock in self._locks.items() if lock.slot_id != slot_id}
+
+    def get_owned_files(self, slot_id: str) -> list[str]:
+        """Get files owned by a session."""
+        return [f for f, lock in self._locks.items() if lock.slot_id == slot_id]
+
+    def has_conflict(self, slot_id: str, files: list[str]) -> bool:
+        """Check if any files conflict with other sessions."""
+        for f in files:
+            existing = self._locks.get(f)
+            if existing and existing.slot_id != slot_id:
+                return True
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Baton merge
+# ---------------------------------------------------------------------------
+
+def merge_batons(slots: list[SessionSlot]) -> str:
+    """Merge baton/summary outputs from multiple completed sessions.
+
+    Combines summaries from each role session into a unified context
+    that can be passed to subsequent sessions (e.g. fixer after reviewer).
+    """
+    lines = ['# Combined Session Context', '']
+    for slot in slots:
+        if slot.status not in ('complete', 'blocked'):
+            continue
+        result = slot.result
+        summary = result.get('reason', '') or result.get('summary', '')
+        score = slot.final_score
+        lines.append(f'## {slot.role.capitalize()} Session ({slot.slot_id[:8]})')
+        if score is not None:
+            lines.append(f'- Score: {score}')
+        lines.append(f'- Status: {slot.status}')
+        if summary:
+            lines.append(f'- Summary: {summary[:300]}')
+        changed = result.get('allChangedFiles', [])
+        if changed:
+            lines.append(f'- Files changed: {", ".join(changed[:15])}')
+        lines.append('')
+    return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Shared stop gate
+# ---------------------------------------------------------------------------
+
+def evaluate_shared_gate(plan: SchedulerPlan, target_score: int = 85) -> dict[str, Any]:
+    """Evaluate a shared stop gate across all sessions in a plan.
+
+    Returns a dict with 'passed', 'reason', and per-slot details.
+    """
+    completed = [s for s in plan.slots if s.status == 'complete']
+    blocked = [s for s in plan.slots if s.status == 'blocked']
+    pending = [s for s in plan.slots if s.status in ('pending', 'running')]
+
+    if pending:
+        return {
+            'passed': False,
+            'reason': f'{len(pending)} session(s) still pending/running.',
+            'slots': _slot_summary(plan.slots),
+        }
+
+    if blocked:
+        return {
+            'passed': False,
+            'reason': f'{len(blocked)} session(s) blocked.',
+            'slots': _slot_summary(plan.slots),
+        }
+
+    scores = [s.final_score for s in completed if s.final_score is not None]
+    avg_score = sum(scores) / len(scores) if scores else 0
+    all_above_target = all(s >= target_score for s in scores)
+    passed = all_above_target and len(completed) == len(plan.slots)
+
+    return {
+        'passed': passed,
+        'reason': 'All sessions passed.' if passed else f'Avg score {avg_score:.0f}, target {target_score}.',
+        'avgScore': avg_score,
+        'allAboveTarget': all_above_target,
+        'slots': _slot_summary(plan.slots),
+    }
+
+
+def _slot_summary(slots: list[SessionSlot]) -> list[dict[str, Any]]:
+    return [
+        {
+            'slotId': s.slot_id[:8],
+            'role': s.role,
+            'status': s.status,
+            'score': s.final_score,
+            'reasonCode': s.final_reason_code,
+        }
+        for s in slots
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+def save_scheduler_plan(plan: SchedulerPlan, path: Path) -> None:
+    """Persist scheduler plan state to a JSON file."""
+    data = {
+        'planId': plan.plan_id,
+        'baseGoal': plan.base_goal,
+        'status': plan.status,
+        'executionOrder': plan.execution_order,
+        'slots': [
+            {
+                'slotId': s.slot_id,
+                'role': s.role,
+                'goal': s.goal[:200],
+                'goalProfile': s.goal_profile,
+                'status': s.status,
+                'runId': s.run_id,
+                'finalScore': s.final_score,
+                'finalReasonCode': s.final_reason_code,
+            }
+            for s in plan.slots
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+
+
+def load_scheduler_plan(path: Path) -> SchedulerPlan | None:
+    """Load a scheduler plan from a JSON file."""
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (json.JSONDecodeError, OSError):
+        return None
+    slots = [
+        SessionSlot(
+            slot_id=s.get('slotId', ''),
+            role=s.get('role', ''),
+            goal=s.get('goal', ''),
+            goal_profile=s.get('goalProfile', 'default'),
+            status=s.get('status', 'pending'),
+            run_id=s.get('runId', ''),
+            final_score=s.get('finalScore'),
+            final_reason_code=s.get('finalReasonCode', ''),
+        )
+        for s in data.get('slots', [])
+    ]
+    return SchedulerPlan(
+        plan_id=data.get('planId', ''),
+        base_goal=data.get('baseGoal', ''),
+        slots=slots,
+        execution_order=data.get('executionOrder', []),
+        status=data.get('status', 'pending'),
+    )

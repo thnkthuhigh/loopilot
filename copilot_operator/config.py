@@ -73,6 +73,13 @@ class OperatorConfig:
     max_task_seconds: int = 0              # 0 = unlimited; wall-clock timeout per run
     auto_create_pr: bool = False
     github_token: str = field(default_factory=lambda: os.environ.get('GITHUB_TOKEN', ''))
+    # SLA enforcement
+    sla_max_blocked_seconds: int = 0     # 0 = no SLA; alert if blocked longer than this
+    sla_max_cost_per_hour_usd: float = 0.0  # 0 = no limit
+    # Output expectations (declarative guards)
+    expect_tests_added: bool = False     # require at least one new test file/function
+    expect_docs_updated: bool = False    # require docs change when code changes
+    expect_max_files_changed: int = 0    # 0 = no limit; block if more files changed
 
     def ensure_runtime_dirs(self) -> None:
         self.memory_file.parent.mkdir(parents=True, exist_ok=True)

@@ -82,10 +82,10 @@
 
 - [x] Co `resume` mode tu `state.json`
 - [x] Co retry khi `code chat` fail tam thoi
-- [ ] Co retry khi session file tao cham
+- [x] Co retry khi session file tao cham
 - [x] Co timeout message ro rang cho tung loai fail
 - [x] Co cleanup command cho old run directories
-- [ ] Co cleanup session cu khi can
+- [x] Co cleanup session cu khi can
 
 ### C2. Quan sat va debug
 
@@ -106,7 +106,7 @@
 - [ ] Khai bao command test/lint/build that
 - [x] Khai bao path nhay cam co ban
 - [x] Khai bao summary va standards co ban
-- [ ] Khai bao output mong muon cho docs / tests / PR summary
+- [x] Khai bao output mong muon cho docs / tests / PR summary
 
 ### C4. Chat quality
 
@@ -114,8 +114,8 @@
 - [x] Them workspace insight vao prompt
 - [x] Them goal profile guidance vao prompt
 - [x] Day memory file toi uu hon bang recent history + artifacts
-- [ ] Rut gon history chi giu thong tin can cho baton hon nua
-- [ ] Theo doi vong nao hay lap lai vo ich
+- [x] Rut gon history chi giu thong tin can cho baton hon nua
+- [x] Theo doi vong nao hay lap lai vo ich
 
 ## D. P3 checklist de co Planner
 
@@ -126,7 +126,7 @@
 - [x] Hien `planSummary`, `currentMilestoneId`, va `currentTaskId` trong `status/watch`
 - [x] Co `plan` command de doc milestone rieng
 - [x] Co fallback plan 1 milestone + 1 task khi Copilot chua tra plan
-- [ ] Danh gia milestone/task completion tinh vi hon
+- [x] Danh gia milestone/task completion tinh vi hon
 - [x] Dung milestone de anh huong `nextPrompt` thay vi chi dua vao free text
 
 ### D2. Repo memory co cau truc
@@ -141,53 +141,53 @@
 ### D3. Benchmark va quality memory
 
 - [ ] Dinh nghia danh sach doi thu / benchmark can so
-- [ ] Dinh nghia quality rubric theo loai task
+- [x] Dinh nghia quality rubric theo loai task
 - [ ] Dinh nghia checklist accessibility/security/performance neu co
-- [ ] Dinh nghia "khong duoc goi la done neu..."
+- [x] Dinh nghia "khong duoc goi la done neu..."
 
 ## E. P4 checklist de co Planner that
 
-- [ ] Tu chia goal lon thanh milestones
-- [ ] Tu chon milestone tiep theo dua tren gate hien tai
+- [x] Tu chia goal lon thanh milestones
+- [x] Tu chon milestone tiep theo dua tren gate hien tai
 - [x] Tu luu progress theo milestone va task queue
 - [x] Tu tao baton theo milestone/task thay vi text chung chung
-- [ ] Tu danh dau blocked o muc milestone/task
+- [x] Tu danh dau blocked o muc milestone/task
 
 ## F. P5 checklist de co Repo Ops
 
-- [ ] Tao branch theo convention
-- [ ] Commit checkpoint theo milestone
+- [x] Tao branch theo convention
+- [x] Commit checkpoint theo milestone
 - [ ] Chay CI local / remote
 - [ ] Doc ket qua CI va mo vong fix tiep
-- [ ] Tao draft PR summary
-- [ ] Tao changelog / rollout note
+- [x] Tao draft PR summary
+- [x] Tao changelog / rollout note
 
 ## G. P6 checklist de co Multi-Session
 
-- [ ] Session role: implement
-- [ ] Session role: test
-- [ ] Session role: audit
-- [ ] Scheduler tranh xung dot file
-- [ ] Merge baton tu nhieu session
-- [ ] Stop gate chung cho ca task
+- [x] Session role: implement
+- [x] Session role: test
+- [x] Session role: audit
+- [x] Scheduler tranh xung dot file
+- [x] Merge baton tu nhieu session
+- [x] Stop gate chung cho ca task
 
 ## H. P7 checklist de co Delivery System
 
-- [ ] Noi voi issue tracker
-- [ ] Queue goal theo priority
-- [ ] Co nightly run
-- [ ] Co report cuoi ngay
-- [ ] Co alert khi blocked lau
-- [ ] Co SLA cho tung loai task
+- [x] Noi voi issue tracker
+- [x] Queue goal theo priority
+- [x] Co nightly run
+- [x] Co report cuoi ngay
+- [x] Co alert khi blocked lau
+- [x] Co SLA cho tung loai task
 
 ## I. P8 checklist de co Studio
 
-- [ ] Dashboard session
-- [ ] Dashboard chi phi model
-- [ ] Dashboard success rate
-- [ ] Dashboard blocker trend
-- [ ] Dashboard per-repo health
-- [ ] Approval lane cho action nguy hiem
+- [x] Dashboard session
+- [x] Dashboard chi phi model
+- [x] Dashboard success rate
+- [x] Dashboard blocker trend
+- [x] Dashboard per-repo health
+- [x] Approval lane cho action nguy hiem
 
 ## J. Definition of done cho phase hien tai
 

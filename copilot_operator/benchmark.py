@@ -255,3 +255,101 @@ def render_benchmark_result(result: BenchmarkResult, use_color: bool = True) -> 
              f' — {result.elapsed_seconds:.2f}s total'),
     ]
     return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Quality rubric — per-profile validation rules
+# ---------------------------------------------------------------------------
+
+QUALITY_RUBRIC: dict[str, list[str]] = {
+    'bug': [
+        'test file added or modified',
+        'regression test covers the fix',
+        'no unrelated changes',
+    ],
+    'feature': [
+        'test coverage for new code',
+        'documentation updated if public API changed',
+        'no performance regressions',
+    ],
+    'refactor': [
+        'no functional changes',
+        'test suite unchanged or expanded',
+        'lint clean',
+    ],
+    'audit': [
+        'security findings documented',
+        'risk classification applied',
+        'remediation recommendations present',
+    ],
+    'docs': [
+        'no code changes',
+        'examples match actual API',
+        'spelling and grammar checked',
+    ],
+}
+
+
+def get_rubric(goal_profile: str) -> list[str]:
+    """Return the quality rubric for a given goal profile."""
+    return QUALITY_RUBRIC.get(goal_profile, QUALITY_RUBRIC.get('feature', []))
+
+
+# ---------------------------------------------------------------------------
+# "Not done if…" guards
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DoneGuard:
+    """A blocking condition that prevents marking a run as 'done'."""
+    name: str
+    check: str  # 'tests_added' | 'docs_updated' | 'max_files' | 'lint_clean' | 'custom'
+    description: str = ''
+
+
+DEFAULT_DONE_GUARDS: list[DoneGuard] = [
+    DoneGuard('tests_added', 'tests_added', 'At least one test file must be added or modified'),
+    DoneGuard('lint_clean', 'lint_clean', 'Lint must pass with zero errors'),
+    DoneGuard('max_files', 'max_files', 'Changed files must not exceed configured limit'),
+]
+
+
+def evaluate_done_guards(
+    result: dict[str, Any],
+    guards: list[DoneGuard] | None = None,
+    max_files: int = 0,
+) -> list[dict[str, Any]]:
+    """Evaluate done guards against a run result.
+
+    Returns a list of violated guards (empty = all passed).
+    """
+    violations: list[dict[str, Any]] = []
+    for guard in (guards or DEFAULT_DONE_GUARDS):
+        if guard.check == 'tests_added':
+            changed = result.get('allChangedFiles', []) or []
+            has_test = any('test' in f.lower() for f in changed)
+            if not has_test:
+                violations.append({
+                    'guard': guard.name,
+                    'description': guard.description,
+                    'detail': 'No test files were added or modified.',
+                })
+        elif guard.check == 'lint_clean':
+            last_history = (result.get('history', []) or [{}])[-1] if result.get('history') else {}
+            lint_status = last_history.get('lint', result.get('lint', 'not_run'))
+            if lint_status not in ('pass', 'not_applicable', 'not_run'):
+                violations.append({
+                    'guard': guard.name,
+                    'description': guard.description,
+                    'detail': f'Lint status: {lint_status}',
+                })
+        elif guard.check == 'max_files':
+            if max_files > 0:
+                changed = result.get('allChangedFiles', []) or []
+                if len(changed) > max_files:
+                    violations.append({
+                        'guard': guard.name,
+                        'description': guard.description,
+                        'detail': f'{len(changed)} files changed (max {max_files}).',
+                    })
+    return violations

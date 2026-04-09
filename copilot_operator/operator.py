@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as _json
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -261,7 +262,7 @@ class CopilotOperator:
                     self.runtime['finalReasonCode'] = 'FATAL_ERROR'
                     self.runtime['pendingDecision'] = None
                     self._write_runtime()
-                    return {
+                    result = {
                         'status': 'error',
                         'reason': str(exc),
                         'reasonCode': 'FATAL_ERROR',
@@ -269,7 +270,10 @@ class CopilotOperator:
                         'retryable': False,
                         'iterations': iteration,
                         'stateFile': str(self.config.state_file),
+                        'summaryFile': str(self.config.summary_file),
                     }
+                    dump_json(self.config.summary_file, result)
+                    return result
 
                 # Retryable error — apply backoff
                 error_retry_count += 1
@@ -286,13 +290,16 @@ class CopilotOperator:
                         'nextPrompt': decision.next_prompt,
                     }
                     self._write_runtime()
-                    return {
+                    result = {
                         'status': 'error',
                         'reason': str(exc),
                         'reasonCode': 'CONSECUTIVE_ERRORS',
                         'iterations': iteration,
                         'stateFile': str(self.config.state_file),
+                        'summaryFile': str(self.config.summary_file),
                     }
+                    dump_json(self.config.summary_file, result)
+                    return result
 
                 # Backoff delay: 2, 4, 8, ... capped at 30s
                 delay = min(_BACKOFF_BASE ** error_retry_count, 30.0)
@@ -385,10 +392,42 @@ class CopilotOperator:
                     attachment_paths.append(abs_path)
 
         send_chat_prompt(self.config, prompt, add_files=attachment_paths)
-        session_path = wait_for_session_file(chat_dir, baseline, self.config.session_timeout_seconds, self.config.poll_interval_seconds)
-        session = wait_for_completed_session(session_path, self.config)
-        request = get_latest_request(session)
-        response_text = extract_response_text(request)
+        try:
+            session_path = wait_for_session_file(chat_dir, baseline, self.config.session_timeout_seconds, self.config.poll_interval_seconds)
+        except VSCodeChatRetryableError:
+            # Session file not detected, but Copilot may have completed the work.
+            # Check if workspace files changed (git diff) as a fallback signal.
+            try:
+                diff_result = subprocess.run(
+                    ['git', 'diff', '--stat', 'HEAD'],
+                    cwd=str(self.config.workspace), capture_output=True, text=True, timeout=10, check=False,
+                )
+                if diff_result.stdout.strip():
+                    logger.warning('Session file timeout but workspace has changes — running validation fallback.')
+                else:
+                    raise  # No changes detected, re-raise the timeout
+            except (FileNotFoundError, OSError):
+                raise  # git not available, re-raise the timeout
+            # Fallback: generate a synthetic response for validation
+            response_text = (
+                'Session file not captured, but workspace changes detected.\n'
+                '<OPERATOR_STATE>{"status": "needs_validation", "summary": "Changes detected via git diff after session timeout.", '
+                '"blockers": [], "score": 0, "next_prompt": ""}</OPERATOR_STATE>\n'
+                '<OPERATOR_PLAN>{}</OPERATOR_PLAN>'
+            )
+            response_path = self._artifact_path(iteration, 'response.md')
+            response_path.write_text(response_text, encoding='utf-8')
+            assessment = parse_operator_state(response_text)
+            if assessment is None:
+                assessment = fallback_assessment(response_text, False)
+            # Skip the normal session parsing and go directly to validation
+            plan_update = parse_operator_plan(response_text)
+            self.runtime['plan'] = merge_plan(self.runtime.get('plan'), plan_update, goal_text, terminal_status=assessment.status)
+            # Continue to validation below — assessment.score will be 0 so validation decides
+        else:
+            session = wait_for_completed_session(session_path, self.config)
+            request = get_latest_request(session)
+            response_text = extract_response_text(request)
         response_path = self._artifact_path(iteration, 'response.md')
         response_path.write_text(response_text, encoding='utf-8')
 
@@ -536,6 +575,7 @@ class CopilotOperator:
             'validation_after': after_validation_results,
         }
         self.runtime['history'].append(record)
+        self._compact_history()  # keep runtime memory bounded
         self.runtime['lastResponsePath'] = str(response_path)
         self.runtime['lastPromptPath'] = str(prompt_path)
         self.runtime['updatedAt'] = self._now()
@@ -937,6 +977,23 @@ class CopilotOperator:
             if last_decision is not None:
                 self.runtime['_last_decision'] = last_decision
         self.config.memory_file.write_text(self._render_memory(), encoding='utf-8')
+
+    def _compact_history(self, keep_full: int = 5) -> None:
+        """Compact old history entries to reduce baton/state size.
+
+        Keeps the last *keep_full* entries intact. Older entries are trimmed
+        to just the essential fields (iteration, score, status, decisionCode).
+        """
+        history = self.runtime.get('history', [])
+        if len(history) <= keep_full:
+            return
+        _COMPACT_KEYS = {'iteration', 'score', 'status', 'decisionCode', 'summary', 'tests', 'lint'}
+        for i in range(len(history) - keep_full):
+            entry = history[i]
+            history[i] = {k: entry[k] for k in _COMPACT_KEYS if k in entry}
+            # Truncate summary in compacted entries
+            if 'summary' in history[i]:
+                history[i]['summary'] = str(history[i]['summary'])[:120]
 
     def _sync_runtime_paths(self) -> None:
         self.runtime['logRootDir'] = str(self.config.log_dir)

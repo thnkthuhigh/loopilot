@@ -181,8 +181,14 @@ def render_dashboard(snap: DashboardSnapshot) -> str:
         calls = snap.llm_cost.get('calls', 0)
         tokens = snap.llm_cost.get('totalTokens', 0)
         cost = snap.llm_cost.get('estimatedUsd', 0)
+        prompt_tokens = snap.llm_cost.get('promptTokens', 0)
+        completion_tokens = snap.llm_cost.get('completionTokens', 0)
         lines.append(bold('── LLM Cost ──'))
         lines.append(f'  Calls: {calls}  |  Tokens: {tokens:,}  |  Cost: ${cost:.4f}')
+        if prompt_tokens or completion_tokens:
+            lines.append(f'  Prompt: {prompt_tokens:,}  |  Completion: {completion_tokens:,}')
+        if snap.iteration and cost > 0:
+            lines.append(f'  Cost/iteration: ${cost / max(snap.iteration, 1):.4f}')
         lines.append('')
 
     # Changed files
@@ -203,6 +209,65 @@ def render_dashboard(snap: DashboardSnapshot) -> str:
 
     # Footer
     lines.append(dim(f'Run: {snap.run_id[:12]}  |  Resumes: {snap.resume_count}'))
+    return '\n'.join(lines)
+
+
+def render_blocker_trend(state_file: Path) -> str:
+    """Render blocker trend across iterations from state file."""
+    if not state_file.exists():
+        return 'No state file found.'
+    try:
+        data = json.loads(state_file.read_text(encoding='utf-8'))
+    except (json.JSONDecodeError, OSError):
+        return 'Cannot read state file.'
+    history = data.get('history', [])
+    if not history:
+        return 'No iteration history.'
+    lines = [bold('── Blocker Trend ──')]
+    for entry in history[-10:]:
+        iteration = entry.get('iteration', '?')
+        blockers = entry.get('blockers', []) or []
+        count = len(blockers)
+        bar = '█' * min(count, 10) if count else dim('none')
+        lines.append(f'  iter {iteration}: {bar} ({count})')
+    return '\n'.join(lines)
+
+
+def render_repo_health(log_dir: Path) -> str:
+    """Render per-repo health summary from run logs."""
+    if not log_dir.exists():
+        return 'No log directory.'
+    run_dirs = sorted(
+        [d for d in log_dir.iterdir() if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
+    if not run_dirs:
+        return 'No runs found.'
+
+    scores: list[int] = []
+    statuses: dict[str, int] = {}
+    for run_dir in run_dirs[:20]:
+        decision_files = list(run_dir.glob('iteration-*-decision.json'))
+        for df in decision_files:
+            try:
+                dec = json.loads(df.read_text(encoding='utf-8'))
+                score = dec.get('score')
+                if isinstance(score, int):
+                    scores.append(score)
+                status = dec.get('action', 'unknown')
+                statuses[status] = statuses.get(status, 0) + 1
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    lines = [bold('── Repo Health ──')]
+    lines.append(f'  Runs analysed: {len(run_dirs[:20])}')
+    if scores:
+        avg = sum(scores) / len(scores)
+        lines.append(f'  Avg score: {avg:.0f}  |  Min: {min(scores)}  |  Max: {max(scores)}')
+    if statuses:
+        status_text = ', '.join(f'{k}={v}' for k, v in sorted(statuses.items()))
+        lines.append(f'  Decisions: {status_text}')
     return '\n'.join(lines)
 
 

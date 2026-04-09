@@ -54,10 +54,11 @@ def run_code_command(
     raise VSCodeChatRetryableError(last_error or 'VS Code command failed.')
 
 
-def focus_workspace(workspace: Path, config: OperatorConfig | None = None) -> None:
+def focus_workspace(workspace: Path, config: OperatorConfig | None = None, *, new_window: bool = False) -> None:
     retries = config.code_command_retries if config else 0
     delay = config.code_command_retry_delay_seconds if config else 2.0
-    run_code_command(['--reuse-window', str(workspace)], cwd=workspace, timeout_seconds=60, retries=retries, retry_delay_seconds=delay)
+    flag = '--new-window' if new_window else '--reuse-window'
+    run_code_command([flag, str(workspace)], cwd=workspace, timeout_seconds=60, retries=retries, retry_delay_seconds=delay)
 
 
 # Cache so we only open VS Code once per process
@@ -73,8 +74,8 @@ def ensure_workspace_storage(config: OperatorConfig) -> Path:
     # Check if workspaceStorage already exists (VS Code already open)
     storage = find_workspace_storage(config.workspace)
     if not storage:
-        # Only focus/open VS Code if storage doesn't exist yet
-        focus_workspace(config.workspace, config)
+        # Open in a NEW window so we don't hijack the user's active editor.
+        focus_workspace(config.workspace, config, new_window=True)
         deadline = time.time() + 20
         while time.time() < deadline:
             storage = find_workspace_storage(config.workspace)
@@ -142,7 +143,7 @@ def wait_for_session_file(chat_dir: Path, baseline: dict[Path, float], timeout_s
         if changed:
             return max(changed, key=lambda item: item.stat().st_mtime)
         time.sleep(poll_interval)
-    raise VSCodeChatError('Timed out waiting for a new or updated chat session file.')
+    raise VSCodeChatRetryableError('Timed out waiting for a new or updated chat session file.')
 
 
 def wait_for_completed_session(session_path: Path, config: OperatorConfig) -> dict:

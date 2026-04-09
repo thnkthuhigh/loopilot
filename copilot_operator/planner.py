@@ -58,6 +58,86 @@ def _normalize_status(value: Any) -> str:
     return status if status in _ALLOWED_STATUSES else 'pending'
 
 
+# ---------------------------------------------------------------------------
+# Acceptance criteria evaluation
+# ---------------------------------------------------------------------------
+
+_ACCEPTANCE_KW_MAP: dict[str, list[str]] = {
+    'tests pass': ['tests'],
+    'test coverage': ['tests'],
+    'lint clean': ['lint'],
+    'no lint errors': ['lint'],
+    'build succeeds': ['build'],
+}
+
+
+def evaluate_acceptance(
+    acceptance: list[str],
+    validation_results: list[dict[str, Any]] | None = None,
+    score: int | None = None,
+    target_score: int = 85,
+) -> tuple[list[str], list[str]]:
+    """Evaluate milestone acceptance criteria against validation results.
+
+    Returns *(met, unmet)* lists of acceptance criteria strings.
+    """
+    if not acceptance:
+        return [], []
+    val_status: dict[str, str] = {}
+    for v in (validation_results or []):
+        val_status[v.get('name', '').lower()] = v.get('status', 'unknown')
+    met: list[str] = []
+    unmet: list[str] = []
+    for criterion in acceptance:
+        criterion_lower = criterion.lower().strip()
+        matched = False
+        for pattern, gate_names in _ACCEPTANCE_KW_MAP.items():
+            if pattern in criterion_lower:
+                if all(val_status.get(g) == 'pass' for g in gate_names):
+                    met.append(criterion)
+                else:
+                    unmet.append(criterion)
+                matched = True
+                break
+        if not matched:
+            # Score-based criteria
+            if any(kw in criterion_lower for kw in ('score', 'target', 'threshold')):
+                if score is not None and score >= target_score:
+                    met.append(criterion)
+                else:
+                    unmet.append(criterion)
+            else:
+                # Can't evaluate programmatically — assume met if score is good
+                if score is not None and score >= target_score:
+                    met.append(criterion)
+                else:
+                    unmet.append(criterion)
+    return met, unmet
+
+
+def pick_milestone_by_gate(
+    milestones: list[dict[str, Any]],
+    validation_results: list[dict[str, Any]] | None = None,
+    score: int | None = None,
+    target_score: int = 85,
+) -> str:
+    """Pick the best current milestone considering gate/validation results.
+
+    Advances past milestones whose acceptance criteria are fully met.
+    """
+    for milestone in milestones:
+        if milestone.get('status') in ('done', 'blocked'):
+            continue
+        acceptance = milestone.get('acceptance', []) or []
+        if acceptance:
+            met, unmet = evaluate_acceptance(acceptance, validation_results, score, target_score)
+            if not unmet and met:
+                milestone['status'] = 'done'
+                continue
+        return str(milestone.get('id', ''))
+    return ''
+
+
 def _normalize_acceptance(items: Any) -> list[str]:
     normalized: list[str] = []
     for item in items or []:

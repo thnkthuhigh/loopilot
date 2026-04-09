@@ -345,3 +345,85 @@ def render_git_status(status: GitStatus) -> str:
         else:
             lines.append('Remote: up to date')
     return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Changelog / release note generation
+# ---------------------------------------------------------------------------
+
+def generate_changelog(
+    workspace: Path,
+    from_ref: str = '',
+    to_ref: str = 'HEAD',
+    title: str = '',
+) -> str:
+    """Generate a changelog from git log between two refs.
+
+    Parameters
+    ----------
+    from_ref:
+        Starting ref (tag or commit). Empty = all history.
+    to_ref:
+        Ending ref (default HEAD).
+    title:
+        Optional section title.
+    """
+    range_spec = f'{from_ref}..{to_ref}' if from_ref else to_ref
+    result = _run_git(
+        ['log', range_spec, '--pretty=format:%h %s', '--no-merges'],
+        workspace,
+    )
+    if not result.success:
+        return ''
+    commits = result.stdout.strip().splitlines()
+    if not commits:
+        return ''
+
+    # Categorize commits by conventional-commit prefix
+    categories: dict[str, list[str]] = {
+        'feat': [],
+        'fix': [],
+        'docs': [],
+        'refactor': [],
+        'test': [],
+        'chore': [],
+        'other': [],
+    }
+    for line in commits:
+        parts = line.split(' ', 1)
+        if len(parts) < 2:
+            continue
+        sha, msg = parts
+        categorized = False
+        for prefix in ('feat', 'fix', 'docs', 'refactor', 'test', 'chore'):
+            if msg.lower().startswith(prefix):
+                categories[prefix].append(f'- {msg} ({sha})')
+                categorized = True
+                break
+        if not categorized:
+            categories['other'].append(f'- {msg} ({sha})')
+
+    header = title or f'Changelog ({from_ref or "initial"}..{to_ref})'
+    lines = [f'# {header}', '']
+    section_titles = {
+        'feat': 'Features',
+        'fix': 'Bug Fixes',
+        'docs': 'Documentation',
+        'refactor': 'Refactoring',
+        'test': 'Tests',
+        'chore': 'Chores',
+        'other': 'Other',
+    }
+    for key, section_title in section_titles.items():
+        if categories[key]:
+            lines.append(f'## {section_title}')
+            lines.extend(categories[key])
+            lines.append('')
+
+    # Stats
+    stat_result = _run_git(['diff', '--stat', range_spec], workspace)
+    if stat_result.success and stat_result.stdout.strip():
+        last_line = stat_result.stdout.strip().splitlines()[-1]
+        lines.append(f'**Stats**: {last_line.strip()}')
+
+    return '\n'.join(lines)

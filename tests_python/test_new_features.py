@@ -473,6 +473,8 @@ class TestMergeVscodeSettings(unittest.TestCase):
                 'chat.autopilot.enabled': True,
                 'chat.tools.terminal.enableAutoApprove': True,
                 'chat.tools.edits.autoApprove': {'**': True},
+                'files.autoSave': 'afterDelay',
+                'files.hotExit': 'onExitAndWindowClose',
                 'github.copilot.chat.preferredModel': _PREFERRED_MODELS[0],
                 'chat.useCustomAgentHooks': True,
                 'chat.agentFilesLocations': ['.github/agents'],

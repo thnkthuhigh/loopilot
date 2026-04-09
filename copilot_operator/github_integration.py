@@ -424,3 +424,33 @@ def batch_process_issues(
         for issue in issues
         if not issue.assignee  # Only unassigned issues
     ]
+
+
+def post_blocked_alert(
+    config: GitHubConfig,
+    issue_number: int,
+    reason: str,
+    run_id: str = '',
+    elapsed_seconds: float = 0,
+) -> None:
+    """Post a blocked alert to an issue when the operator is stuck.
+
+    Called by the operator when a run enters 'blocked' state and
+    SLA enforcement is configured.
+    """
+    elapsed_text = f'{elapsed_seconds / 60:.0f} min' if elapsed_seconds else 'unknown'
+    run_text = f' (run `{run_id[:8]}`)' if run_id else ''
+
+    body = (
+        f'## 🚨 Operator Blocked Alert{run_text}\n\n'
+        f'The operator has been blocked for **{elapsed_text}**.\n\n'
+        f'**Reason:** {reason}\n\n'
+        f'Human intervention may be needed to unblock.\n\n'
+        f'---\n*Automated by Copilot Operator*'
+    )
+    add_issue_comment(config, issue_number, body)
+    update_issue_labels(
+        config, issue_number,
+        add_labels=['operator:blocked', 'needs-attention'],
+        remove_labels=['operator:in-progress'],
+    )

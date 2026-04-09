@@ -9,5 +9,10 @@
   "chat.tools.edits.autoApprove": {
     "**": true
   },
-  "github.copilot.chat.preferredModel": "Claude Opus 4.5 (copilot)"
+  "github.copilot.chat.preferredModel": "Claude Opus 4.5 (copilot)",
+  "files.autoSave": "afterDelay",
+  "files.hotExit": "onExitAndWindowClose",
+  "chat.hookFilesLocations": {
+    ".github/hooks/supervisor.json": true
+  }
 }
