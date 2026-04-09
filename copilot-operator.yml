@@ -1,6 +1,7 @@
 workspace: .
 mode: agent
 goalProfile: default
+chatModel: "Claude Sonnet 4.5 (copilot)"
 maxIterations: 6
 pollIntervalSeconds: 2
 sessionTimeoutSeconds: 900

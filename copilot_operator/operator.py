@@ -148,7 +148,7 @@ class CopilotOperator:
     def __init__(self, config: OperatorConfig, dry_run: bool = False, live: bool = False) -> None:
         self.config = config
         self.config.ensure_runtime_dirs()
-        _merge_vscode_settings(config.workspace)
+        _merge_vscode_settings(config.workspace, forced_model=config.chat_model)
         self.runtime: dict[str, Any] = {}
         self.dry_run = dry_run
         self.live = live

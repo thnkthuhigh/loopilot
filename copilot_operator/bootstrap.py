@@ -482,10 +482,15 @@ Return a brief summary, then emit:
 
 
 _PREFERRED_MODELS = [
-    'Claude Opus 4.5 (copilot)',
     'Claude Sonnet 4.5 (copilot)',
+    'claude-sonnet-4-5',
+    'claude-sonnet-4',
     'gpt-4o (copilot)',
+    'Claude Opus 4.5 (copilot)',
+    'Claude Opus 4.6 (copilot)',
 ]
+# First entry is the default model applied to new workspaces.
+_DEFAULT_MODEL = _PREFERRED_MODELS[0]
 
 
 def _vscode_user_settings_path() -> Path | None:
@@ -531,7 +536,7 @@ def _apply_auto_approve_keys(existing: dict) -> bool:
     return changed
 
 
-def _merge_vscode_settings(workspace: Path) -> None:
+def _merge_vscode_settings(workspace: Path, forced_model: str = '') -> None:
     """Ensure required VS Code chat settings are set in both workspace and user settings.
 
     Machine-scoped settings (autoApprove, enableAutoApprove) are ignored by VS Code
@@ -556,8 +561,10 @@ def _merge_vscode_settings(workspace: Path) -> None:
             ws_existing = {}
     ws_changed = _apply_auto_approve_keys(ws_existing)
     current_model = ws_existing.get('github.copilot.chat.preferredModel', '')
-    if current_model not in _PREFERRED_MODELS:
-        ws_existing['github.copilot.chat.preferredModel'] = _PREFERRED_MODELS[0]
+    # Use explicit model if provided, otherwise default to Sonnet (first in list)
+    desired_model = forced_model or _DEFAULT_MODEL
+    if current_model != desired_model:
+        ws_existing['github.copilot.chat.preferredModel'] = desired_model
         ws_changed = True
     if ws_existing.get('chat.useCustomAgentHooks') is not True:
         ws_existing['chat.useCustomAgentHooks'] = True

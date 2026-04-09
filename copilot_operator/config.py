@@ -73,6 +73,9 @@ class OperatorConfig:
     max_task_seconds: int = 0              # 0 = unlimited; wall-clock timeout per run
     auto_create_pr: bool = False
     github_token: str = field(default_factory=lambda: os.environ.get('GITHUB_TOKEN', ''))
+    # Chat model override — sets github.copilot.chat.preferredModel in VS Code settings
+    # If empty, the bootstrap default list is used (currently Claude Sonnet 4.5).
+    chat_model: str = ''
     # SLA enforcement
     sla_max_blocked_seconds: int = 0     # 0 = no SLA; alert if blocked longer than this
     sla_max_cost_per_hour_usd: float = 0.0  # 0 = no limit
@@ -262,4 +265,5 @@ def load_config(path: str | Path | None = None, workspace_override: str | Path |
         large_diff_threshold=int(merged_raw.get('largeDiffThreshold', merged_raw.get('large_diff_threshold', 200))),
         auto_create_pr=bool(merged_raw.get('autoCreatePr', merged_raw.get('auto_create_pr', False))),
         github_token=os.environ.get('GITHUB_TOKEN', ''),
+        chat_model=str(merged_raw.get('chatModel', merged_raw.get('chat_model', ''))).strip(),
     )
