@@ -1,6 +1,6 @@
 # Copilot Operator
 
-> **v2.4.0** · 36 modules · 11,300+ LOC · 475 tests · MIT
+> **v2.5.0** · 39 modules · 14,400+ LOC · 510 tests · MIT
 
 **Autonomous meta-agent that drives GitHub Copilot Chat to complete coding tasks end-to-end.**
 
@@ -30,6 +30,9 @@ Battle-tested on 10 sessions across 4 repos (including a production React + Expr
 | **Stop Controller** | No-progress detection, diff dedup, wall-clock timeout, score floor |
 | **Worker Contract** | HealthSignal, RecyclePolicy, RequiredArtifacts for multi-session safety |
 | **CI Integration** | Trigger GitHub Actions, analyse failures, build fix prompts |
+| **Run Narrative** | Prose summary of each run, done explanation with structured evidence |
+| **Mission Memory** | Project-level direction, objectives, lessons — persisted as YAML |
+| **Memory Promotion** | Auto-promote recurring patterns between 5 memory layers |
 | **Benchmark Engine** | Run and score operator cases against keyword expectations |
 | **Live Mode** | Colour-coded real-time iteration progress in the terminal (`--live`) |
 | **Dry-Run Mode** | Generate prompts without VS Code interaction — safe for testing |
@@ -169,7 +172,7 @@ copilot-operator benchmark --file benchmark.json --json
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                   CLI (cli.py) — 23 commands          │
+│                   CLI (cli.py) — 25 commands          │
 ├──────────┬──────────────────────────────────────────┤
 │          │         CopilotOperator (operator.py)     │
 │          │  ┌──────────────┐  ┌──────────────────┐  │
@@ -326,7 +329,7 @@ protectedPaths:
 ```
 copilot_operator/
 ├── operator.py            # Main orchestration loop (1,400 lines)
-├── cli.py                 # 23 CLI commands (Click-based)
+├── cli.py                 # 25 CLI commands
 ├── vscode_chat.py         # VS Code CLI bridge (subprocess)
 ├── session_store.py       # VS Code session file parser
 ├── validation.py          # Test/lint/build command execution
@@ -358,11 +361,14 @@ copilot_operator/
 ├── dashboard.py           # TUI dashboard (iterations, cost, health)
 ├── roi.py                 # ROI analytics (success rate, cost/task)
 ├── policy.py              # Policy engine (approval rules, cost ceilings)
+├── narrative.py           # Run narrative: prose summary, done explanation
+├── mission_memory.py      # Mission memory: project direction, objectives, lessons
+├── memory_promotion.py    # Memory promotion: cross-layer fact promotion rules
 ├── logging_config.py      # Structured logging
 └── py.typed               # PEP 561 type marker
 ```
 
-**36 modules, ~11,300 lines of production code.**
+**39 modules, ~14,400 lines of production code.**
 
 ---
 

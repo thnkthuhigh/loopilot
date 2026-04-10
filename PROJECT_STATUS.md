@@ -16,7 +16,7 @@
 3. [Danh sách module (39 file, ~14.400 dòng)](#3-danh-sách-module)
 4. [CLI — 25 lệnh](#4-cli--25-lệnh)
 5. [Tính năng đã hoàn thành](#5-tính-năng-đã-hoàn-thành)
-6. [Hệ thống test (510 test, 20 file)](#6-hệ-thống-test)
+6. [Hệ thống test (530 test, 21 file)](#6-hệ-thống-test)
 7. [Cấu hình (copilot-operator.yml)](#7-cấu-hình)
 8. [LLM Brain — 5 provider](#8-llm-brain--5-provider)
 9. [Tài liệu hiện có](#9-tài-liệu-hiện-có)
@@ -327,7 +327,7 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 
 ## 6. Hệ thống test
 
-**Tổng: 510 test, 20 file, tất cả PASS** ✅ (lint clean)
+**Tổng: 530 test, 21 file, tất cả PASS** ✅ (lint clean)
 
 | File test | Số test | Nội dung |
 |-----------|--------:|----------|
@@ -351,6 +351,7 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 | `tests_python/test_stop_controller.py` | 15 | Stop controller logic |
 | `tests_python/test_stress_edge_cases.py` | 10 | Stress tests, edge cases |
 | `tests_python/test_validation_autofill.py` | 9 | Validation command autofill |
+| `tests_python/test_logging_vscode.py` | 20 | **NEW** logging_config + vscode_chat |
 
 ### Chạy test
 

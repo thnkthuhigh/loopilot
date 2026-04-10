@@ -30,13 +30,13 @@ Nhung gi da co trong workspace nay:
 
 Gioi han hien tai:
 
-- [ ] Chua co profile cho repo that
-- [ ] Chua co validation command that trong config
-- [ ] Chua co planner dai han theo milestone
-- [ ] Chua co multi-session orchestration
-- [ ] Chua co git/CI/PR automation
-- [ ] Chua co dashboard va queue goal
-- [ ] Chua co UI automation fallback khi CLI khong du
+- [x] Chua co profile cho repo that → **Done (Phase 2, repo-profile.yml)**
+- [x] Chua co validation command that trong config → **Done (Phase 1, validation pipeline)**
+- [x] Chua co planner dai han theo milestone → **Done (Phase 3, planner.py)**
+- [x] Chua co multi-session orchestration → **Done (Phase 4, scheduler.py)**
+- [x] Chua co git/CI/PR automation → **Done (Phase 5/6, repo_ops.py + ci_integration.py)**
+- [x] Chua co dashboard va queue goal → **Done (Phase 7, dashboard.py + nightly.py)**
+- [ ] Chua co UI automation fallback khi CLI khong du → **Hoãn (CLI đủ ~95% case)**
 
 ## 3. Kien truc muc tieu
 

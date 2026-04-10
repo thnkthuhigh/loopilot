@@ -1,12 +1,14 @@
 # Copilot Operator Backlog
 
+> **Cập nhật:** v2.5.0 — hầu hết items đã hoàn thành.
+
 ## Cach dung backlog nay
 
 Moi item duoi day la ticket-ready o muc ky thuat. Ban co the copy nguyen khoi sang issue tracker.
 
 ## P0
 
-### OP-001: Repo profile support
+### OP-001: Repo profile support ✅
 
 Muc tieu:
 Cho operator nap profile rieng theo repo thay vi chi dua vao `copilot-operator.yml` chung.
@@ -21,7 +23,9 @@ Done khi:
 
 - moi repo co the co stop gate, prompt, command, path rule rieng
 
-### OP-002: Validation pipeline that
+**→ Hoàn thành Phase 2. Đã chạy trên note-cli + english.**
+
+### OP-002: Validation pipeline that ✅
 
 Muc tieu:
 Cho operator hieu `tests`, `lint`, `build`, `smoke` nhu cac gate doc lap.
@@ -36,7 +40,9 @@ Done khi:
 
 - operator biet ly do fail cua tung gate va ghi lai vao state
 
-### OP-003: Resume session
+**→ Hoàn thành Phase 1. Jest, Vitest, ESLint, pytest, ruff đều đã cấu hình.**
+
+### OP-003: Resume session ✅
 
 Muc tieu:
 Neu operator bi dung giua chung, co the resume tu `state.json` thay vi bat dau lai.
@@ -50,7 +56,9 @@ Done khi:
 
 - 1 run dang do co the tiep tuc ma khong mat memory
 
-### OP-004: Structured decision log
+**→ Hoàn thành. CLI `copilot-operator resume` hoạt động.**
+
+### OP-004: Structured decision log ✅
 
 Muc tieu:
 Tach ro prompt, response, decision, validation thanh cac artifact de debug.
@@ -65,9 +73,11 @@ Done khi:
 
 - moi ly do continue/stop deu truy nguon duoc
 
+**→ Hoàn thành. Ghi decision.json + validation.json + summary per run.**
+
 ## P1
 
-### OP-005: Goal templates
+### OP-005: Goal templates ✅
 
 Muc tieu:
 Co mau goal cho bug, feature, refactor, audit, docs.
@@ -81,7 +91,9 @@ Done khi:
 
 - nguoi dung khong can tu nghi prompt tu dau cho moi task
 
-### OP-006: Project brain seed
+**→ Hoàn thành. 6 goal templates + goalProfile trong config.**
+
+### OP-006: Project brain seed ✅
 
 Muc tieu:
 Tao bo nho co cau truc cho repo.
@@ -97,7 +109,9 @@ Done khi:
 
 - prompt moi co the attach memory dung theo repo
 
-### OP-007: Better blocker classification
+**→ Hoàn thành Phase 2. Đầy đủ 4 file trong docs/operator/.**
+
+### OP-007: Better blocker classification ✅
 
 Muc tieu:
 Phan loai blocker co he thong hon.
@@ -112,9 +126,11 @@ Done khi:
 
 - `blocked` khong con mo ho
 
+**→ Hoàn thành. Severity rubric + reason code trong benchmark.py.**
+
 ## P2
 
-### OP-008: Autonomous planner
+### OP-008: Autonomous planner ✅
 
 Muc tieu:
 Chia epic thanh chuoi task nho.
@@ -129,7 +145,9 @@ Done khi:
 
 - 1 goal lon duoc chia ra va thuc thi tung phan
 
-### OP-009: Multi-session scheduler
+**→ Hoàn thành Phase 3. planner.py + goal_decomposer.py.**
+
+### OP-009: Multi-session scheduler ✅
 
 Muc tieu:
 Chay nhieu session Copilot song song co dieu phoi.
@@ -144,7 +162,9 @@ Done khi:
 
 - 2 session co the cung xu ly 1 task lon ma khong dap len nhau
 
-### OP-010: Git and PR rails
+**→ Code hoàn thành Phase 4. Chưa test thực chiến song song.**
+
+### OP-010: Git and PR rails ✅
 
 Muc tieu:
 Them branch, checkpoint commit, draft PR vao pipeline.
@@ -159,9 +179,11 @@ Done khi:
 
 - task nho di duoc tu goal den draft PR
 
+**→ Hoàn thành. repo_ops.py: branch, commit, PR, changelog.**
+
 ## P3
 
-### OP-011: Issue tracker integration
+### OP-011: Issue tracker integration ✅
 
 Muc tieu:
 Cho operator keo task tu Linear/Jira/GitHub Issues.
@@ -176,7 +198,9 @@ Done khi:
 
 - operator co the nhan ticket that va tra ticket that
 
-### OP-012: UI fallback driver
+**→ Hoàn thành Phase 6. github_integration.py: issues, PRs, labels.**
+
+### OP-012: UI fallback driver ⏸️ HOÃN
 
 Muc tieu:
 Neu CLI gap gioi han thi co UI automation fallback.
@@ -191,7 +215,9 @@ Done khi:
 
 - operator van tiep tuc duoc khi CLI khong du
 
-### OP-013: Dashboard
+**→ Hoãn. CLI đã xử lý ~95% use case. Dễ nợ kỹ thuật.**
+
+### OP-013: Dashboard ✅
 
 Muc tieu:
 Hien thi live state cua operator va session.
@@ -207,19 +233,31 @@ Done khi:
 
 - khong can mo file raw de biet he thong dang ra sao
 
+**→ Hoàn thành Phase 7. dashboard.py: TUI real-time.**
+
 ## P4
 
-### OP-014: Nightly delivery loop
+### OP-014: Nightly delivery loop ✅
 
 Muc tieu:
 Cho phep queue task chay ban dem va sang co report.
 
-### OP-015: Policy engine
+**→ Hoàn thành. nightly.py.**
+
+### OP-015: Policy engine ✅
 
 Muc tieu:
 Action nguy hiem phai qua approval lane.
 
-### OP-016: ROI analytics
+**→ Hoàn thành. policy.py: rules, cost ceilings, approval lanes.**
+
+### OP-016: ROI analytics ✅
 
 Muc tieu:
 Do duoc operator tiet kiem bao nhieu thoi gian va tien.
+
+**→ Hoàn thành. roi.py: success rate, cost/task, time saved.**
+
+---
+
+## Tổng kết: 15/16 hoàn thành, 1 hoãn (OP-012 UI fallback)
