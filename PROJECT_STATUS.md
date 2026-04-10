@@ -3,9 +3,9 @@
 > **Phiên bản:** 2.3.0  
 > **Giấy phép:** MIT  
 > **Python:** ≥ 3.10  
-> **Trạng thái:** Production/Battle-tested  
+> **Trạng thái:** Battle-tested on real repos, platform-fragile  
 > **Cập nhật:** 2026-04-10  
-> **Local commits:** 4 ahead of origin/main
+> **Local commits:** 5 ahead of origin/main
 
 ---
 
@@ -25,6 +25,7 @@
 12. [Kết quả E2E đã chạy](#12-kết-quả-e2e-đã-chạy)
 13. [Bug đã fix qua E2E thực chiến](#13-bug-đã-fix-qua-e2e-thực-chiến)
 14. [Nhận định tình trạng hiện tại](#14-nhận-định-tình-trạng-hiện-tại)
+15. [Chiến lược phát triển tiếp](#15-chiến-lược-phát-triển-tiếp)
 
 ---
 
@@ -446,25 +447,18 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 
 ### Trong dự định (chưa code)
 
-#### Phase 5 — UI Driver Fallback
-> **Mục tiêu:** Tự động hóa VS Code UI khi CLI không đủ
-- UI action layer (click, type, select menu)
-- Selector & image registry cho các VS Code elements
-- Watchdog phát hiện VS Code bị treo/crash
-- **Lý do chưa làm:** Ưu tiên thấp — CLI đã xử lý được ~95% use case. Chỉ cần khi gặp dialog/popup không có CLI equivalent.
-
-#### CI Integration (thuộc Phase 5 gốc — Repo Ops)
+#### CI Integration (thuộc Phase 5 gốc — Repo Ops) — Ưu tiên 5
 > **Mục tiêu:** Chạy CI local/remote và đọc kết quả
 - Trigger CI pipeline (GitHub Actions, GitLab CI)
 - Đọc CI result → nếu fail → mở vòng fix Copilot tiếp
-- **Lý do chưa làm:** Cần GitHub Actions workflow thật trên repo mục tiêu. Code integration sẵn sàng nhưng chưa có pipeline thật để test.
+- **Trạng thái:** Code integration sẵn sàng nhưng chưa có pipeline thật để test.
 
-#### Mở rộng tương lai (chưa lên kế hoạch cụ thể)
-- **Web UI Dashboard** — thay thế TUI bằng web-based dashboard
-- **Team collaboration** — nhiều người dùng chia sẻ operator
-- **Plugin system** — cho phép thêm custom validation/strategy
-- **Cloud deployment** — chạy operator trên cloud thay vì local
-- **VS Code Extension** — đóng gói thành extension thay vì CLI
+#### Phase 5 — UI Driver Fallback — ĐÃ HOÃN
+> Ưu tiên thấp. CLI đã xử lý ~95% use case. Dễ nợ kỹ thuật. Chưa đúng thời điểm.
+
+#### Mở rộng tương lai — ĐÃ HOÃN
+> Tất cả các mục dưới đây đã hoãn — chưa đúng điểm nghẽn hiện tại.
+- Web UI Dashboard, Team collaboration, Plugin system, Cloud deployment, VS Code Extension
 
 ---
 
@@ -530,28 +524,131 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 
 ## 14. Nhận định tình trạng hiện tại
 
-### Trạng thái: **Battle-tested, sẵn sàng dùng thật**
+### Mô tả thẳng thắn
 
-**Code:** Hoàn chỉnh. 33 module, 10.399 LOC, 421 tests pass, lint clean, 0 known bugs.
+> A battle-tested Copilot supervisor that has proven itself on real repositories, with strong validation and recovery loops, but still dependent on evolving VS Code/Copilot session surfaces.
 
-**E2E:** Đã chạy 10 sessions trên 4 repos khác nhau:
-- 2 toy repos (Python đơn giản) → hoạt động hoàn hảo
-- 1 mid-size repo (note-cli, Python CLI) → 4 tasks bao gồm multi-iteration
-- 1 production repo (english, React + Express + MongoDB, 835 tests) → hoạt động
+### Điểm yếu số 1: Platform coupling
 
-**Điểm mạnh:**
-- Validation pipeline hoạt động ổn với cả Jest, Vitest, pytest, eslint
-- Goal decomposition + auto-fix loop đã chứng minh trên real code
-- Error recovery (rollback, retry) hoạt động đúng
-- 7 production bugs đã phát hiện và fix qua E2E thực chiến
+7/7 bug thực chiến đều liên quan đến **session surface** của VS Code/Copilot:
 
-**Điểm yếu / rủi ro:**
-- **Session format coupling:** VS Code Copilot Chat thay đổi transcript format (kind→type) giữa các version — cần maintain parser
-- **Same-window conflict:** Khi operator và user dùng cùng VS Code window, sessions bị overlap — cần chạy trên window riêng
-- **MongoDB-dependent tests:** Tests cần DB đang chạy sẽ hang nếu DB không có — cần exclude hoặc mock
-- **Chưa test multi-session scheduler thật:** Code có nhưng chưa chạy 2+ sessions song song
+- transcript path thay đổi (`chatSessions/` → `transcripts/`)
+- transcript format thay đổi (`kind/k/v` → `type/data`)
+- session handling (timeout, completion detection)
+- window routing (`--reuse-window` gửi sai window)
+- encoding (cp1252 Windows vs UTF-8)
 
-**Kết luận:** Dự án đã vượt qua phase "prototype" và đang ở phase **production-ready**. Có thể dùng ngay trên bất kỳ repo nào có test/lint đã setup. Cần maintain parser session khi Copilot Chat cập nhật version mới.
+**Nhận xét:** Logic của operator mạnh — validation loop, scoring, recovery đều hoạt động đúng. Nhưng lớp platform coupling dễ bị kéo ngã mỗi khi VS Code hoặc Copilot Chat cập nhật version.
+
+### "Battle-tested" nhưng chưa "generalized-ready"
+
+Đã chạy tốt trên:
+- repo nhỏ (toy Python)
+- repo vừa (note-cli, Python CLI)
+- 1 repo production lớn (english, React + Express + MongoDB)
+
+**Nhưng:** Chưa đủ căn cứ để claim "bất kỳ repo nào có test/lint setup là dùng được ngay". Cần thêm repo với ecosystem khác (Go, Rust, Java, monorepo...) để validate claim đó.
+
+### Multi-session: code có, bằng chứng chưa có
+
+Scheduler, worker, conflict tracker, baton merge — tất cả đã code xong.
+Nhưng **chưa từng chạy 2+ sessions song song trên repo thật**.
+"Copilot farm" hiện tại là **hứa hẹn kỹ thuật**, chưa phải bằng chứng vận hành.
+
+### Đánh giá thẳng
+
+| Tiêu chí | Điểm | Ghi chú |
+|----------|------:|---------|
+| Ý tưởng | 9/10 | Autonomous meta-agent điều khiển Copilot — rất khác biệt |
+| Độ khác biệt | 8.5/10 | Không tool nào làm đúng cách này |
+| Kiến trúc | 8.5/10 | 33 module tách rõ, testable, extensible |
+| Thực chiến | 8/10 | 10 sessions, 4 repos, 7 bugs fixed |
+| Độ bền dài hạn | 6.5/10 | Platform coupling = rủi ro lớn nhất |
+| Tiềm năng (nếu đi đúng) | 9/10 | Rất đáng phát triển tiếp |
+
+### Kết luận
+
+- Không còn là prototype
+- Đã có giá trị thật (10 sessions thành công, production repo)
+- Rất ấn tượng với tư cách dự án cá nhân
+- **Điểm cần làm tiếp là hardening và chiến lược execution, không phải thêm tính năng mới**
+
+---
+
+## 15. Chiến lược phát triển tiếp
+
+### Hướng đi: Internal power tool trước, polish thành public repo sau
+
+**Không productize nặng.** Mục tiêu giai đoạn tiếp:
+- Biến nó thành "operating system" cho workflow code cá nhân
+- Giảm tối đa công babysit Copilot
+- Chạy ổn trên 1–3 repo dùng nhiều nhất
+- Song song polish repo công khai (README, docs, case studies)
+
+### Ưu tiên 1: Harden runtime boundary 🔴 CRITICAL
+
+**Vấn đề:** Session/worker lifecycle không rõ ràng. Context bị mất khi CLI tạo session mới. Same-window conflict.
+
+**Cần làm:**
+- session isolation rõ hơn (dedicated window per operator run)
+- context continuity khi one-shot CLI buộc tạo session mới
+- same-window conflict detection (warn/abort nếu window đang bận)
+- resume sau lỗi mượt hơn (state checkpoint giữa iteration)
+
+**Lý do #1:** Đây là chỗ sinh lợi nhất — giảm babysit = giá trị cốt lõi.
+
+### Ưu tiên 2: Stop controller mạnh hơn 🟠 HIGH
+
+**Đã có:** score threshold, blocker severity, SLA, expectations.
+
+**Cần thêm:**
+- **no-progress detection** — nếu 2 iterations không có diff mới → dừng
+- **diff dedup** — phát hiện Copilot lặp code cũ
+- **cost ceiling thực chiến** — wall-clock timeout per task (không chỉ per session)
+- **hard stop vs soft escalate** — phân biệt "dừng hẳn" vs "báo human"
+
+**Lý do:** Quyết định operator có chạy unattended được hay phải canh.
+
+### Ưu tiên 3: Chuẩn hóa worker contract 🟡 MEDIUM
+
+Nghĩ worker như một **thực thể vận hành**, không chỉ là wrapper:
+
+| Thuộc tính | Mô tả |
+|-----------|-------|
+| Task input | Nhận task gì, format chuẩn |
+| Minimum state | State tối thiểu worker phải giữ |
+| Health signal | healthy / degraded / dead |
+| Recycle policy | Khi nào kill + restart worker |
+| Required artifacts | Output bắt buộc sau mỗi iteration |
+
+**Lý do:** Worker contract sạch → continuous mode sạch → multi-session sạch.
+
+### Ưu tiên 4: Multi-session thực chiến 🟡 MEDIUM
+
+**Không viết thêm code scheduler.** Đem scheduler đã có ra chiến trường:
+
+- 1 worker implement + 1 worker test/audit
+- Chạy trên repo thật
+- Đo: conflict rate, merge pain, token/time savings
+- **Nếu multi-session không thắng rõ ràng → không promote nó thành feature chính**
+
+### Ưu tiên 5: CI integration 🟢 LOW
+
+Bước mở rộng tốt hơn UI driver fallback:
+- Trigger GitHub Actions workflow
+- Đọc CI result → nếu fail → mở vòng fix tiếp
+- Giá trị trực tiếp hơn UI fallback (vốn dễ nợ kỹ thuật)
+
+### Hoãn lại (chưa đúng thời điểm)
+
+| Feature | Lý do hoãn |
+|---------|-----------|
+| UI Driver Fallback | Dễ nợ kỹ thuật, CLI đã xử lý ~95% case |
+| Web UI Dashboard | Chưa đủ user base, TUI đủ dùng |
+| Team collaboration | Chưa ổn cho 1 người, chưa nên mở cho nhiều người |
+| Plugin system | Over-engineering ở giai đoạn này |
+| Cloud deployment | Local-first vẫn đúng strategy |
+| VS Code Extension packaging | Cần platform coupling ổn trước |
 
 ---
 
@@ -578,4 +675,4 @@ copilot-operator run --goal "Viết function tính giai thừa"
 
 ---
 
-*Tài liệu cập nhật — Copilot Operator v2.3.0 — 2026-04-10*
+*Tài liệu cập nhật — Copilot Operator v2.3.0 — 2026-04-10 — Honest assessment edition*
