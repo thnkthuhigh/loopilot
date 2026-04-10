@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+__all__ = [
+    'WorkspaceInsight',
+    'detect_workspace_insight',
+    'as_dict',
+]
+
 import json
 from dataclasses import dataclass, field
 from pathlib import Path

@@ -9,6 +9,14 @@ accurate plans. Falls back to heuristics otherwise.
 
 from __future__ import annotations
 
+__all__ = [
+    'classify_goal',
+    'decompose_goal',
+    'build_replan_prompt',
+    'should_replan',
+    'decompose_goal_with_llm',
+]
+
 from typing import Any
 
 from .logging_config import get_logger

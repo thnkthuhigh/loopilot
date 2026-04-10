@@ -12,6 +12,21 @@ query the shared pool during planning or diagnosis.
 
 from __future__ import annotations
 
+__all__ = [
+    'DEFAULT_SHARED_PATH',
+    'SharedInsight',
+    'SharedBrain',
+    'shared_brain_dir',
+    'load_shared_brain',
+    'save_shared_brain',
+    'contribute_insight',
+    'query_insights',
+    'query_guardrails',
+    'query_traps',
+    'render_cross_repo_insights',
+    'export_rules_as_insights',
+]
+
 import json
 import os
 from dataclasses import asdict, dataclass, field

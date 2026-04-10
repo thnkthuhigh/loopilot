@@ -6,6 +6,18 @@ failures, and automatically adjusts its approach instead of blindly retrying.
 
 from __future__ import annotations
 
+__all__ = [
+    'ScoreTrend',
+    'LoopSignal',
+    'StrategyHint',
+    'Diagnosis',
+    'analyse_score_trend',
+    'detect_loops',
+    'analyse_validation_failures',
+    'diagnose',
+    'format_diagnosis_for_prompt',
+]
+
 import re
 from dataclasses import dataclass, field
 from typing import Any

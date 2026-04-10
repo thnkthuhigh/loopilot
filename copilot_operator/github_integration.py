@@ -8,6 +8,17 @@ Requires a GITHUB_TOKEN environment variable for authentication.
 
 from __future__ import annotations
 
+__all__ = [
+    'GitHubIssue',
+    'PullRequest',
+    'GitHubConfig',
+    'load_github_config',
+    'list_issues',
+    'get_issue',
+    'close_issue',
+    'create_pull_request',
+]
+
 import json
 import os
 import time

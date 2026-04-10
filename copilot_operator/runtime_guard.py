@@ -11,6 +11,18 @@ Features:
 
 from __future__ import annotations
 
+__all__ = [
+    'LockInfo',
+    'IterationCheckpoint',
+    'acquire_lock',
+    'release_lock',
+    'read_lock',
+    'refresh_lock',
+    'detect_window_conflict',
+    'save_checkpoint',
+    'clear_checkpoint',
+]
+
 import json
 import os
 import time

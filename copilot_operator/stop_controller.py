@@ -9,6 +9,13 @@ Enhances the basic score-threshold stop gate with:
 
 from __future__ import annotations
 
+__all__ = [
+    'StopSignal',
+    'StopControllerConfig',
+    'StopController',
+    'build_stop_controller_config',
+]
+
 import hashlib
 import time
 from dataclasses import dataclass
@@ -174,6 +181,9 @@ def _hash_diff(diff_text: str) -> str:
 def build_stop_controller_config(operator_config: Any) -> StopControllerConfig:
     """Build StopControllerConfig from OperatorConfig fields."""
     return StopControllerConfig(
+        no_progress_max_iterations=getattr(operator_config, 'stop_no_progress_iterations', 2) or 2,
+        score_floor=getattr(operator_config, 'stop_score_floor', 20) or 20,
+        score_floor_max_iterations=getattr(operator_config, 'stop_score_floor_iterations', 3) or 3,
         task_timeout_seconds=getattr(operator_config, 'max_task_seconds', 0) or 0,
         default_escalation=getattr(operator_config, 'escalation_policy', 'soft') or 'soft',
     )

@@ -10,6 +10,17 @@ All functions are pure: they take data dicts and return strings. No I/O.
 
 from __future__ import annotations
 
+__all__ = [
+    'LiveStatus',
+    'DoneExplanation',
+    'RunNarrative',
+    'build_live_status',
+    'build_done_explanation',
+    'build_run_narrative',
+    'write_done_explanation_file',
+    'write_narrative_file',
+]
+
 from dataclasses import dataclass, field
 from typing import Any
 

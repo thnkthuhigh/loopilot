@@ -7,6 +7,18 @@ so that future runs start with more context.
 
 from __future__ import annotations
 
+__all__ = [
+    'RunDigest',
+    'LearningEntry',
+    'ProjectInsights',
+    'extract_run_digest',
+    'load_run_history',
+    'load_run_digests_from_states',
+    'analyse_runs',
+    'render_insights_for_memory',
+    'render_insights_for_prompt',
+]
+
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

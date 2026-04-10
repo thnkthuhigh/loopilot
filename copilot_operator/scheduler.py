@@ -6,6 +6,20 @@ with different roles (coder, reviewer, tester) and merging their results.
 
 from __future__ import annotations
 
+__all__ = [
+    'SessionRole',
+    'SessionSlot',
+    'SchedulerPlan',
+    'ROLE_TEMPLATES',
+    'create_scheduler_plan',
+    'get_next_runnable_slot',
+    'is_plan_complete',
+    'mark_slot_running',
+    'mark_slot_complete',
+    'update_plan_status',
+    'render_scheduler_plan',
+]
+
 import json
 from dataclasses import dataclass, field
 from pathlib import Path

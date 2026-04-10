@@ -14,6 +14,16 @@ context bloat.
 
 from __future__ import annotations
 
+__all__ = [
+    'PromotionCandidate',
+    'PromotionResult',
+    'PromotionThresholds',
+    'DEFAULT_THRESHOLDS',
+    'evaluate_promotions',
+    'apply_promotions',
+    'run_promotion_cycle',
+]
+
 from dataclasses import dataclass, field
 from typing import Any
 

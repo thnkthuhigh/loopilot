@@ -8,6 +8,13 @@ Enables configure-and-forget operation:
 
 from __future__ import annotations
 
+__all__ = [
+    'NightlyConfig',
+    'NightlyReport',
+    'collect_nightly_goals',
+    'run_nightly',
+]
+
 import json
 import time
 from dataclasses import dataclass, field

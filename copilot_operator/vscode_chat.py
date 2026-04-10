@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+__all__ = [
+    'VSCodeChatError',
+    'VSCodeChatRetryableError',
+    'run_code_command',
+    'focus_workspace',
+    'ensure_workspace_storage',
+    'snapshot_chat_sessions',
+    'send_chat_prompt',
+    'wait_for_session_file',
+    'wait_for_completed_session',
+]
+
 import json
 import shutil
 import subprocess

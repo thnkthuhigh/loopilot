@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+__all__ = [
+    'CopilotOperator',
+    'Decision',
+]
+
 import json as _json
 import subprocess
 import sys
@@ -30,7 +35,7 @@ from .goal_decomposer import build_replan_prompt, classify_goal, decompose_goal,
 from .intention_guard import learn_guardrails_from_history, render_combined_guardrails
 from .llm_brain import LLMBrain, load_llm_config_from_dict, load_llm_config_from_env, render_brain_status
 from .logging_config import get_logger
-from .memory_promotion import run_promotion_cycle
+from .memory_promotion import PromotionThresholds, run_promotion_cycle
 from .meta_learner import apply_meta_learning, load_rules, render_guardrails
 from .mission_memory import (
     load_mission,
@@ -830,7 +835,7 @@ class CopilotOperator:
         self._learned_rules = load_rules(self.config.workspace)
 
         # Feature D: Snapshot manager — git-based rollback safety net
-        self._snapshot_mgr = SnapshotManager()
+        self._snapshot_mgr = SnapshotManager(max_snapshots=self.config.max_snapshots)
 
         # Feature E: Cross-repo shared brain
         self._shared_brain = load_shared_brain()
@@ -1366,8 +1371,13 @@ class CopilotOperator:
             return self._cached_repo_map_text  # type: ignore[return-value]
         try:
             from .repo_map import build_repo_map, render_repo_map_for_prompt
-            repo_map = build_repo_map(self.config.workspace, goal=goal)
-            text = render_repo_map_for_prompt(repo_map)
+            repo_map = build_repo_map(
+                self.config.workspace,
+                goal=goal,
+                max_files=self.config.repo_map_max_files,
+                max_chars=self.config.repo_map_max_chars,
+            )
+            text = render_repo_map_for_prompt(repo_map, max_chars=self.config.repo_map_max_chars)
             self._cached_repo_map_text: str = text
             return text
         except Exception as exc:
@@ -1557,6 +1567,11 @@ class CopilotOperator:
                 promo_counts = run_promotion_cycle(
                     history, result, rule_dicts,
                     brain_learnings, mission.lessons_learned, shared_insights,
+                    thresholds=PromotionThresholds(
+                        trap_repeat_threshold=self.config.promotion_trap_repeat,
+                        validation_confirm_threshold=self.config.promotion_validation_confirm,
+                        strategy_success_threshold=self.config.promotion_strategy_success,
+                    ),
                 )
                 if any(v > 0 for v in promo_counts.values()):
                     logger.info('Memory promotion: %s', promo_counts)

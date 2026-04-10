@@ -9,6 +9,11 @@ Analyses past run data to answer:
 
 from __future__ import annotations
 
+__all__ = [
+    'ROIMetrics',
+    'analyse_roi',
+]
+
 import json
 from dataclasses import dataclass, field
 from pathlib import Path

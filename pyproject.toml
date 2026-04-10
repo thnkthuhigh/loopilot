@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [
     {name = "Copilot Operator Contributors"},
 ]
-keywords = ["copilot", "operator", "automation", "llm", "vscode", "ai", "autonomous-agent"]
+keywords = ["copilot", "operator", "automation", "llm", "vscode", "ai", "autonomous-agent", "code-review", "ci-cd", "github-copilot"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -24,8 +24,10 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Build Tools",
     "Typing :: Typed",
 ]
 dependencies = [

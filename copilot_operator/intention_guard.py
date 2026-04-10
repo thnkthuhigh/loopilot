@@ -10,6 +10,14 @@ a set of pre-learnt guardrails that prime the LLM to avoid common pitfalls.
 
 from __future__ import annotations
 
+__all__ = [
+    'IntentionProfile',
+    'get_intention_profile',
+    'all_goal_types',
+    'render_combined_guardrails',
+    'learn_guardrails_from_history',
+]
+
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------

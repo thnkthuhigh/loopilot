@@ -11,6 +11,15 @@ Provides a compact, refreshable terminal UI showing:
 
 from __future__ import annotations
 
+__all__ = [
+    'DashboardSnapshot',
+    'load_dashboard_snapshot',
+    'render_dashboard',
+    'render_blocker_trend',
+    'render_repo_health',
+    'run_dashboard',
+]
+
 import json
 import time
 from dataclasses import dataclass

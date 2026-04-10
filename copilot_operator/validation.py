@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+__all__ = [
+    'ValidationPhase',
+    'run_validations',
+    'dump_json',
+]
+
 import json
 import subprocess
 from pathlib import Path
@@ -8,6 +14,26 @@ from typing import Any, Literal
 from .config import ValidationCommand
 
 ValidationPhase = Literal['before_prompt', 'after_response']
+
+# Maximum command length to prevent abuse.
+_MAX_COMMAND_LENGTH = 4096
+
+
+def _sanitize_command(command: str) -> str:
+    """Basic sanitization for validation commands.
+
+    Commands originate from the user's own copilot-operator.yml config,
+    so shell=True is intentional (like Makefile / package.json scripts).
+    This function guards against obviously malicious patterns that might
+    slip in via template injection or corrupted config.
+    """
+    if not command or not command.strip():
+        return ''
+    if '\x00' in command:
+        raise ValueError('Validation command contains null bytes.')
+    if len(command) > _MAX_COMMAND_LENGTH:
+        raise ValueError(f'Validation command exceeds {_MAX_COMMAND_LENGTH} chars.')
+    return command.strip()
 
 
 def _should_run(item: ValidationCommand, phase: ValidationPhase) -> bool:
@@ -38,8 +64,14 @@ def run_validations(validations: list[ValidationCommand], workspace: Path, phase
             )
             continue
         try:
+            sanitized = _sanitize_command(item.command)
+            if not sanitized:
+                continue
+            # shell=True is intentional: commands come from user's own config
+            # file (copilot-operator.yml), like Makefile targets or npm scripts.
+            # shlex.split would break pipes, env vars, and shell builtins.
             completed = subprocess.run(
-                item.command,
+                sanitized,
                 cwd=str(workspace),
                 shell=True,
                 capture_output=True,

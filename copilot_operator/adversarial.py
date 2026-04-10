@@ -7,6 +7,15 @@ baton so the Coder fixes them.
 
 from __future__ import annotations
 
+__all__ = [
+    'CriticFinding',
+    'CriticReport',
+    'build_critic_prompt',
+    'parse_critic_report',
+    'build_fix_baton_from_critic',
+    'should_run_critic',
+]
+
 import json
 import re
 from dataclasses import dataclass, field

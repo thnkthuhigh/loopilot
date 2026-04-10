@@ -10,6 +10,15 @@ Stored as `.copilot-operator/mission.yml` inside the workspace.
 
 from __future__ import annotations
 
+__all__ = [
+    'MissionObjective',
+    'Mission',
+    'load_mission',
+    'save_mission',
+    'update_mission_from_run',
+    'render_mission_for_prompt',
+]
+
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

@@ -9,6 +9,25 @@ Zero external dependencies — stdlib only.
 
 from __future__ import annotations
 
+__all__ = [
+    'green',
+    'yellow',
+    'red',
+    'cyan',
+    'blue',
+    'magenta',
+    'bold',
+    'dim',
+    'ok',
+    'warn',
+    'err',
+    'info',
+    'score_color',
+    'status_badge',
+    'progress_bar',
+    'header_line',
+]
+
 import os
 import sys
 

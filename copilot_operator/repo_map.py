@@ -10,6 +10,13 @@ no tree-sitter dependency required.
 
 from __future__ import annotations
 
+__all__ = [
+    'FileSymbols',
+    'RepoMap',
+    'build_repo_map',
+    'render_repo_map_for_prompt',
+]
+
 import ast
 import re
 from dataclasses import dataclass, field

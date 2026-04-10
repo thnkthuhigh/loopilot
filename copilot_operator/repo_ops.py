@@ -6,6 +6,23 @@ iterations or at the end of a run.
 
 from __future__ import annotations
 
+__all__ = [
+    'GitStatus',
+    'GitResult',
+    'is_git_repo',
+    'get_git_status',
+    'create_branch',
+    'checkout_branch',
+    'stage_all',
+    'stage_files',
+    'commit',
+    'create_operator_commit',
+    'get_all_changed_files',
+    'get_diff_summary',
+    'check_protected_paths',
+    'pre_run_safety_check',
+]
+
 import re
 import subprocess
 from dataclasses import dataclass, field

@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+__all__ = [
+    'ValidationCommand',
+    'RepoProfile',
+    'OperatorConfig',
+    'load_config',
+]
+
 import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -83,6 +90,19 @@ class OperatorConfig:
     expect_tests_added: bool = False     # require at least one new test file/function
     expect_docs_updated: bool = False    # require docs change when code changes
     expect_max_files_changed: int = 0    # 0 = no limit; block if more files changed
+    # Stop controller
+    stop_no_progress_iterations: int = 2   # stop after N iterations with no diff
+    stop_score_floor: int = 20             # hard stop if score stays below this
+    stop_score_floor_iterations: int = 3   # ... for this many consecutive iterations
+    # Repo map
+    repo_map_max_chars: int = 6000         # max chars in repo map context
+    repo_map_max_files: int = 60           # max files to include in repo map
+    # Snapshot
+    max_snapshots: int = 10                # max git stash snapshots to keep
+    # Memory promotion thresholds
+    promotion_trap_repeat: int = 2         # recurring blocker count → project trap
+    promotion_validation_confirm: int = 2  # persistent validation failure → project
+    promotion_strategy_success: int = 3    # strategy success count → cross-repo
 
     def ensure_runtime_dirs(self) -> None:
         self.memory_file.parent.mkdir(parents=True, exist_ok=True)
@@ -266,4 +286,13 @@ def load_config(path: str | Path | None = None, workspace_override: str | Path |
         auto_create_pr=bool(merged_raw.get('autoCreatePr', merged_raw.get('auto_create_pr', False))),
         github_token=os.environ.get('GITHUB_TOKEN', ''),
         chat_model=str(merged_raw.get('chatModel', merged_raw.get('chat_model', ''))).strip(),
+        stop_no_progress_iterations=int(merged_raw.get('stopNoProgressIterations', merged_raw.get('stop_no_progress_iterations', 2))),
+        stop_score_floor=int(merged_raw.get('stopScoreFloor', merged_raw.get('stop_score_floor', 20))),
+        stop_score_floor_iterations=int(merged_raw.get('stopScoreFloorIterations', merged_raw.get('stop_score_floor_iterations', 3))),
+        repo_map_max_chars=int(merged_raw.get('repoMapMaxChars', merged_raw.get('repo_map_max_chars', 6000))),
+        repo_map_max_files=int(merged_raw.get('repoMapMaxFiles', merged_raw.get('repo_map_max_files', 60))),
+        max_snapshots=int(merged_raw.get('maxSnapshots', merged_raw.get('max_snapshots', 10))),
+        promotion_trap_repeat=int(merged_raw.get('promotionTrapRepeat', merged_raw.get('promotion_trap_repeat', 2))),
+        promotion_validation_confirm=int(merged_raw.get('promotionValidationConfirm', merged_raw.get('promotion_validation_confirm', 2))),
+        promotion_strategy_success=int(merged_raw.get('promotionStrategySuccess', merged_raw.get('promotion_strategy_success', 3))),
     )

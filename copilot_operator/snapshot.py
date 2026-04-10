@@ -10,6 +10,19 @@ pollute the commit history.
 
 from __future__ import annotations
 
+__all__ = [
+    'Snapshot',
+    'SnapshotManager',
+    'take_snapshot',
+    'rollback_to_snapshot',
+    'rollback_to_last_good',
+    'find_best_snapshot',
+    'should_rollback',
+    'should_snapshot',
+    'snapshot_summary',
+    'cleanup_operator_stashes',
+]
+
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

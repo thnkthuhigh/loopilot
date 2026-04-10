@@ -9,6 +9,20 @@ Requires GITHUB_TOKEN for GitHub Actions API access.
 
 from __future__ import annotations
 
+__all__ = [
+    'CIConfig',
+    'WorkflowRun',
+    'WorkflowJob',
+    'CIResult',
+    'load_ci_config',
+    'list_workflows',
+    'trigger_workflow',
+    'get_latest_run',
+    'get_run_jobs',
+    'wait_for_run',
+    'analyse_run',
+]
+
 import json
 import time
 import urllib.error

@@ -12,6 +12,19 @@ into each new session, so Copilot behaves as if it has continuity.
 
 from __future__ import annotations
 
+__all__ = [
+    'WorkerStatus',
+    'HealthSignal',
+    'IterationRecord',
+    'WorkerHealth',
+    'TaskInput',
+    'RequiredArtifacts',
+    'RecyclePolicy',
+    'Worker',
+    'Task',
+    'TaskQueue',
+]
+
 import time
 from dataclasses import dataclass, field
 from enum import Enum
