@@ -248,8 +248,107 @@ Xu ly:
 
 ## 14. Checklist truoc khi goi la production-ready
 
-- [ ] 3-5 task that lien tiep chay on
-- [ ] Chi phi model chap nhan duoc
-- [ ] Khong con fail ngau nhien do session parser
-- [ ] Memory va logs du de debug
+- [x] 3-5 task that lien tiep chay on
+- [x] Chi phi model chap nhan duoc
+- [x] Khong con fail ngau nhien do session parser
+- [x] Memory va logs du de debug
 - [ ] Team khac co the doc runbook va chay lai
+
+## 15. Troubleshooting — Loi da gap va cach xu ly (E2E thuc chien)
+
+### E. Chat session timeout — operator crash
+
+**Dau hieu:**
+- Log ghi `VSCodeChatError: ... timed out`
+- Operator coi nhu fatal error va dung han
+
+**Nguyen nhan:** Truoc day timeout duoc throw nhu non-retryable error.
+
+**Xu ly (da fix trong v2.4.0):**
+- Timeout gio la `VSCodeChatRetryableError` — operator tu retry
+- Neu van gap, tang `sessionTimeoutSeconds` trong config
+- Kiem tra VS Code khong bi lag/freeze
+
+### F. Chat dir sai (chatSessions vs transcripts)
+
+**Dau hieu:**
+- Operator ghi `No chat session files found`
+- Nhung Copilot Chat van co phien lam viec
+
+**Nguyen nhan:** VS Code/Copilot Chat 0.42+ doi folder tu `chatSessions/` sang `sessions/` hoac `transcripts/`.
+
+**Xu ly (da fix):**
+- Operator gio auto-detect 3 paths: `chatSessions/`, `sessions/`, `transcripts/`
+- Neu van loi, xem `workspaceStorage` path trong VS Code Developer Tools
+
+### G. code chat --reuse-window gui vao window sai
+
+**Dau hieu:**
+- Prompt gui thanh cong nhung khong thay Copilot lam gi tren repo hien tai
+- Chat hien thi o VS Code window khac
+
+**Xu ly (da fix):**
+- Operator gio chay `focus_workspace()` truoc moi `code chat` call
+- Neu van sai, dam bao chi mo 1 VS Code window cho repo muc tieu
+
+### H. Session summary khong ghi khi fatal error
+
+**Dau hieu:**
+- Run bi crash nhung khong co `session-summary.json`
+
+**Xu ly (da fix):**
+- Summary gio duoc ghi o tat ca error paths (try/except/finally)
+- Resume van hoat dong binh thuong
+
+### I. Windows encoding crash (cp1252)
+
+**Dau hieu:**
+- `UnicodeDecodeError` hoac `UnicodeEncodeError` khi output chua ky tu dac biet
+
+**Xu ly (da fix):**
+- Validation subprocess gio dung bytes mode + `decode('utf-8', errors='replace')`
+- Terminal output dung `PYTHONIOENCODING=utf-8`
+
+### J. KeyError 'kind' — event format loi
+
+**Dau hieu:**
+- `KeyError: 'kind'` khi doc session file
+
+**Nguyen nhan:** Copilot Chat 0.42+ doi format transcript hoan toan — dung `type/data` thay `kind/value`.
+
+**Xu ly (da fix):**
+- Session store gio co `_load_event_log_session()` ho tro ca 2 format
+- Events thieu `kind` duoc skip an toan
+
+### K. Copilot Chat transcript format doi lien tuc
+
+**Dau hieu:**
+- Operator doc duoc response nhung parse sai
+- Score luon = 0 du Copilot tra loi tot
+
+**Xu ly:**
+- Chay `copilot-operator doctor` de kiem tra version Copilot Chat
+- Update operator len version moi nhat
+- Neu gap format moi, bao loi de cap nhat session parser
+
+### L. Operator chay 2 lan cung luc tren 1 workspace
+
+**Dau hieu:**
+- File state bi ghi de
+- Ket qua khong nhat quan
+
+**Xu ly (da fix trong v2.4.0):**
+- Runtime guard (`runtime_guard.py`) dung lock file de ngan chay 2 operator
+- Neu lock bi stale (process crash), operator tu take over sau 600s
+- Conflict detection canh bao khi VS Code window dang co session active
+
+### M. Operator loop vo han (khong tien bo)
+
+**Dau hieu:**
+- Copilot tra ve cung code moi iteration
+- Score khong tang
+
+**Xu ly (da fix trong v2.4.0):**
+- Stop controller (`stop_controller.py`) tu dung sau N iterations khong co diff moi
+- Diff dedup phat hien Copilot lap code cu
+- Score floor hard stop neu score duoi 20 lien tuc 3 iterations

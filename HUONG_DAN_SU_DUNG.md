@@ -1,5 +1,7 @@
 # Hướng dẫn sử dụng Copilot Operator
 
+> **v2.4.0** · 36 module · 475 test · MIT
+
 ## Nó là gì?
 
 **Copilot Operator** là một cái vòng lặp tự động ngồi *điều khiển* GitHub Copilot Chat thay cho bạn.
@@ -65,7 +67,7 @@ pip install -e .
 
 ```bash
 copilot-operator version
-# → copilot-operator 1.0.0
+# → copilot-operator 2.4.0
 
 copilot-operator doctor
 # → kiểm tra tất cả thứ cần thiết, báo [ok] hoặc [warn]
@@ -248,6 +250,10 @@ export GEMINI_API_KEY=...
 # Ollama chạy local (miễn phí, không cần internet)
 export COPILOT_OPERATOR_LLM_PROVIDER=local
 # không cần API key
+
+# xAI / Grok
+export COPILOT_OPERATOR_LLM_PROVIDER=xai
+export XAI_API_KEY=xai-...
 ```
 
 Kiểm tra sau khi cài:
@@ -305,6 +311,30 @@ Khi bạn gõ `copilot-operator run --goal "..."`, đây là những gì xảy r
 | Không chạy nếu VS Code đóng | Cần VS Code mở để giao tiếp qua CLI |
 | Không đảm bảo kết quả đúng 100% | Phụ thuộc vào chất lượng Copilot trả lời |
 | Không tự deploy / push remote | An toàn — không bao giờ tự push lên remote |
+
+---
+
+## An toàn runtime (v2.4.0)
+
+### Operator tự bảo vệ mình
+
+Từ v2.4.0, operator có các cơ chế tự bảo vệ:
+
+**Lock file** — Không cho phép 2 operator chạy cùng lúc trên 1 workspace. Nếu bạn vô tình mở 2 terminal và chạy 2 lần, cái thứ 2 sẽ bị từ chối.
+
+**Conflict detection** — Phát hiện VS Code window đang có chat session active, cảnh báo trước khi ghi đè.
+
+**Crash checkpoint** — Mỗi iteration lưu checkpoint. Nếu operator crash giữa chừng (mất điện, Ctrl+C), resume sẽ tiếp tục từ đúng chỗ dừng.
+
+**Stop controller** — Tự dừng khi:
+- Không có tiến bộ gì sau 2 iterations liên tiếp
+- Copilot lặp lại code cũ (diff dedup)
+- Hết thời gian timeout
+- Score quá thấp (dưới 20) liên tục 3 iterations → hard stop
+
+**Worker health** — Mỗi worker có HealthSignal (HEALTHY / DEGRADED / DEAD). Nếu worker bị lỗi liên tục, scheduler tự recycle (kill + restart).
+
+→ **Bạn không cần ngồi canh operator nữa.** Nó tự biết khi nào dừng.
 
 ---
 

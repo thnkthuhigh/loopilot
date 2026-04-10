@@ -52,10 +52,10 @@ all = [
 copilot-operator = "copilot_operator.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/copilot-operator/copilot-operator"
-Documentation = "https://github.com/copilot-operator/copilot-operator#readme"
-Repository = "https://github.com/copilot-operator/copilot-operator"
-Issues = "https://github.com/copilot-operator/copilot-operator/issues"
+Homepage = "https://github.com/thnkthuhigh/loopilot"
+Documentation = "https://github.com/thnkthuhigh/loopilot#readme"
+Repository = "https://github.com/thnkthuhigh/loopilot"
+Issues = "https://github.com/thnkthuhigh/loopilot/issues"
 
 [tool.setuptools.packages.find]
 include = ["copilot_operator*"]

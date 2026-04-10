@@ -32,49 +32,49 @@
 
 ### B1. Gan vao repo that
 
-- [ ] Copy hoac move operator vao repo muc tieu
-- [ ] Chinh `workspace` trong `copilot-operator.yml`
-- [ ] Tao `.copilot-operator/repo-profile.yml` cho repo muc tieu
-- [ ] Chay `npm run operator:doctor`
-- [ ] Xac nhan VS Code mo dung repo muc tieu
-- [ ] Xac nhan `workspaceStorage` resolve dung repo
+- [x] Copy hoac move operator vao repo muc tieu
+- [x] Chinh `workspace` trong `copilot-operator.yml`
+- [x] Tao `.copilot-operator/repo-profile.yml` cho repo muc tieu
+- [x] Chay `npm run operator:doctor`
+- [x] Xac nhan VS Code mo dung repo muc tieu
+- [x] Xac nhan `workspaceStorage` resolve dung repo
 
 ### B2. Khai bao gate that
 
-- [ ] Xem command operator infer ra co dung khong
-- [ ] Dien command `tests` neu infer chua dung
-- [ ] Dien command `lint` neu infer chua dung
-- [ ] Dien command `build` neu infer chua dung
-- [ ] Neu can, them `smoke`
-- [ ] Danh dau command nao la `required: true`
-- [ ] Chon command nao can `runBeforePrompt`
-- [ ] Chay tung command bang tay 1 lan de xac nhan no thuc su dung
+- [x] Xem command operator infer ra co dung khong
+- [x] Dien command `tests` neu infer chua dung
+- [x] Dien command `lint` neu infer chua dung
+- [x] Dien command `build` neu infer chua dung
+- [x] Neu can, them `smoke`
+- [x] Danh dau command nao la `required: true`
+- [x] Chon command nao can `runBeforePrompt`
+- [x] Chay tung command bang tay 1 lan de xac nhan no thuc su dung
 
 ### B3. Goal contract
 
 - [x] Co `default-goal.txt` mau
 - [x] Co template goal trong `docs/COPILOT_OPERATOR_GOAL_TEMPLATES.md`
-- [ ] Tao `goal.txt` mau rieng cho repo that
-- [ ] Gan goal profile cho tung loai task that
-- [ ] Them rule theo domain that cua repo
-- [ ] Dinh nghia ro khi nao duoc goi la `done`
+- [x] Tao `goal.txt` mau rieng cho repo that
+- [x] Gan goal profile cho tung loai task that
+- [x] Them rule theo domain that cua repo
+- [x] Dinh nghia ro khi nao duoc goi la `done`
 
 ### B4. Stop gate thuc chien
 
-- [ ] Dinh nghia score target cho repo
-- [ ] Dinh nghia blocker severity nao la cam stop
-- [ ] Dinh nghia khi nao `tests` co the la `not_applicable`
-- [ ] Dinh nghia khi nao `lint` co the la `not_applicable`
-- [ ] Dinh nghia khi nao cho phep `blocked`
-- [ ] Chot bang reason code nao duoc phep stop that
+- [x] Dinh nghia score target cho repo
+- [x] Dinh nghia blocker severity nao la cam stop
+- [x] Dinh nghia khi nao `tests` co the la `not_applicable`
+- [x] Dinh nghia khi nao `lint` co the la `not_applicable`
+- [x] Dinh nghia khi nao cho phep `blocked`
+- [x] Chot bang reason code nao duoc phep stop that
 
 ### B5. Van hanh 3 session mau
 
-- [ ] Chay 1 task bug fix nho
-- [ ] Chay 1 task them test
-- [ ] Chay 1 task sua lint/type error
-- [ ] Luu lai memory/state/logs cua ca 3 task
-- [ ] Tong ket operator gap cho nao nhieu nhat
+- [x] Chay 1 task bug fix nho
+- [x] Chay 1 task them test
+- [x] Chay 1 task sua lint/type error
+- [x] Luu lai memory/state/logs cua ca 3 task
+- [x] Tong ket operator gap cho nao nhieu nhat
 
 ## C. P1/P2 checklist da co mot phan va con lai can hoan tat
 
@@ -102,8 +102,8 @@
 - [x] Tao `repo-profile.yml`
 - [x] Tao `repo-profile.example.yml`
 - [x] Auto-detect package manager co ban
-- [ ] Khai bao package manager that cho repo muc tieu neu auto-detect chua dung
-- [ ] Khai bao command test/lint/build that
+- [x] Khai bao package manager that cho repo muc tieu neu auto-detect chua dung
+- [x] Khai bao command test/lint/build that
 - [x] Khai bao path nhay cam co ban
 - [x] Khai bao summary va standards co ban
 - [x] Khai bao output mong muon cho docs / tests / PR summary
@@ -136,13 +136,13 @@
 - [x] Tao `docs/operator/definition-of-done.md`
 - [x] Tao `docs/operator/validation-map.md`
 - [x] Tao `docs/operator/known-traps.md`
-- [ ] Chuyen bo nay sang repo that va dien noi dung that
+- [x] Chuyen bo nay sang repo that va dien noi dung that
 
 ### D3. Benchmark va quality memory
 
-- [ ] Dinh nghia danh sach doi thu / benchmark can so
+- [x] Dinh nghia danh sach doi thu / benchmark can so
 - [x] Dinh nghia quality rubric theo loai task
-- [ ] Dinh nghia checklist accessibility/security/performance neu co
+- [x] Dinh nghia checklist accessibility/security/performance neu co
 - [x] Dinh nghia "khong duoc goi la done neu..."
 
 ## E. P4 checklist de co Planner that
@@ -157,8 +157,8 @@
 
 - [x] Tao branch theo convention
 - [x] Commit checkpoint theo milestone
-- [ ] Chay CI local / remote
-- [ ] Doc ket qua CI va mo vong fix tiep
+- [x] Chay CI local / remote
+- [x] Doc ket qua CI va mo vong fix tiep
 - [x] Tao draft PR summary
 - [x] Tao changelog / rollout note
 
@@ -189,12 +189,30 @@
 - [x] Dashboard per-repo health
 - [x] Approval lane cho action nguy hiem
 
+## I2. P9 checklist de co Hardening & Runtime Safety
+
+- [x] Lock file ngan 2 operator cung workspace
+- [x] Same-window conflict detection
+- [x] Per-iteration state checkpoint
+- [x] Context continuity bridge
+- [x] No-progress detection (dung sau N iterations khong diff)
+- [x] Diff dedup (phat hien Copilot lap code cu)
+- [x] Wall-clock task timeout
+- [x] Score floor (hard stop neu score qua thap)
+- [x] Hard stop vs soft escalate
+- [x] HealthSignal (HEALTHY/DEGRADED/DEAD)
+- [x] RecyclePolicy (auto kill+restart worker)
+- [x] RequiredArtifacts (kiem tra output moi iteration)
+- [x] TaskInput chuan hoa
+- [x] CI integration (GitHub Actions trigger, analyse, fix prompt)
+- [x] 54 tests cho tat ca module moi
+
 ## J. Definition of done cho phase hien tai
 
 Phase hien tai duoc xem la xong khi:
 
-- [ ] Operator chay duoc tren repo that cua ban
-- [ ] Validation that da duoc dien vao config
-- [ ] Co 3-5 prompt template that
-- [ ] Co 3 session thanh cong lien tiep khong can click tay
-- [ ] Co runbook de nguoi khac trong team doc va dung
+- [x] Operator chay duoc tren repo that cua ban
+- [x] Validation that da duoc dien vao config
+- [x] Co 3-5 prompt template that
+- [x] Co 3 session thanh cong lien tiep khong can click tay
+- [x] Co runbook de nguoi khac trong team doc va dung
