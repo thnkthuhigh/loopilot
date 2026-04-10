@@ -219,7 +219,7 @@ def run_benchmark(
     passed_count = sum(1 for r in case_results if r.passed)
     overall = sum(r.score for r in case_results) / len(case_results) if case_results else 0.0
 
-    return BenchmarkResult(
+    result = BenchmarkResult(
         name=bm_name,
         cases_run=len(case_results),
         cases_passed=passed_count,
@@ -229,6 +229,31 @@ def run_benchmark(
         elapsed_seconds=round(total_elapsed, 3),
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
+
+    # --- Benchmark Learner: extract rules from failed cases ---
+    try:
+        if result.cases_failed > 0:
+            from .benchmark_learner import analyse_benchmark_for_rules
+            from .meta_learner import load_rules, save_rules
+
+            config = load_config(config_path, workspace_override)
+            existing = load_rules(config.workspace)
+            existing_triggers = {getattr(r, 'trigger', '') for r in existing}
+            case_dicts = [dataclasses.asdict(cr) for cr in result.case_results]
+            new_rules = analyse_benchmark_for_rules(
+                case_dicts,
+                benchmark_id=bm_name,
+                existing_rule_triggers=existing_triggers,
+            )
+            if new_rules:
+                save_rules(config.workspace, new_rules, merge=True)
+                logger.info('Benchmark learner: %d rules extracted from %d failures',
+                            len(new_rules), result.cases_failed)
+                result._learned_rules_count = len(new_rules)  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.debug('Benchmark learner hook skipped: %s', exc)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

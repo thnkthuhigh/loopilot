@@ -1028,4 +1028,4 @@ copilot-operator run --goal "Viết function tính giai thừa"
 
 ---
 
-*Tài liệu cập nhật — Copilot Operator v2.9.0 — 2026-04-10 — Intelligence Actuation: hint actuator, benchmark learner, telemetry*
+*Tài liệu cập nhật — Copilot Operator v3.0.0 — 2026-04-10 — AI Narrative UI + Integration & Loop Closure*

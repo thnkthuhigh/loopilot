@@ -8,8 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from copilot_operator.narrative_engine import (
     DecisionTrace,
     LiveNarrative,
@@ -19,13 +17,12 @@ from copilot_operator.narrative_engine import (
 )
 from copilot_operator.narrative_formats import (
     format_decision_block,
+    format_iteration_log,
     format_live_block,
     format_memory_block,
     format_summary_block,
-    format_iteration_log,
     views_to_dict,
 )
-
 
 # ─── LiveNarrative ────────────────────────────────────────────────
 

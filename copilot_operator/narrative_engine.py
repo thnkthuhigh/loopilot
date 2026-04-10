@@ -553,6 +553,45 @@ class NarrativeEngine:
         """Return all decision traces from this run."""
         return list(self._decision_traces)
 
+    def serialize_traces(self) -> list[dict[str, Any]]:
+        """Serialize all decision traces to a list of dicts for JSON persistence."""
+        return [
+            {
+                'iteration': t.iteration,
+                'observation': t.observation,
+                'hypothesis': t.hypothesis,
+                'decision': t.decision,
+                'decision_code': t.decision_code,
+                'alternatives_rejected': t.alternatives_rejected,
+                'actions_taken': t.actions_taken,
+                'score_delta': t.score_delta,
+                'what_helped': t.what_helped,
+                'what_hurt': t.what_hurt,
+                'correction': t.correction,
+            }
+            for t in self._decision_traces
+        ]
+
+    @classmethod
+    def load_traces(cls, data: list[dict[str, Any]]) -> list[DecisionTrace]:
+        """Load decision traces from serialized dicts."""
+        return [
+            DecisionTrace(
+                iteration=d.get('iteration', 0),
+                observation=d.get('observation', ''),
+                hypothesis=d.get('hypothesis', ''),
+                decision=d.get('decision', ''),
+                decision_code=d.get('decision_code', ''),
+                alternatives_rejected=d.get('alternatives_rejected', []),
+                actions_taken=d.get('actions_taken', []),
+                score_delta=d.get('score_delta', 0),
+                what_helped=d.get('what_helped', ''),
+                what_hurt=d.get('what_hurt', ''),
+                correction=d.get('correction', ''),
+            )
+            for d in data
+        ]
+
     def render_full_trace(self) -> str:
         """Render the complete decision trace for the run."""
         if not self._decision_traces:

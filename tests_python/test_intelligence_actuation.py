@@ -6,19 +6,16 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 from copilot_operator.benchmark_learner import (
-    BenchmarkLesson,
     analyse_benchmark_for_rules,
     render_benchmark_lessons,
 )
 from copilot_operator.hint_actuator import (
-    ActuationResult,
     actuate_hints,
 )
 from copilot_operator.intelligence_telemetry import (
@@ -27,7 +24,6 @@ from copilot_operator.intelligence_telemetry import (
     TelemetryAggregator,
 )
 from copilot_operator.reasoning import StrategyHint
-
 
 # ===================================================================
 # Hint Actuator Tests
@@ -90,7 +86,7 @@ class TestActuateHints(unittest.TestCase):
         hints = [StrategyHint(action='narrow_scope')]
         config = _make_config(expect_max_files_changed=4)
         runtime: dict = {}
-        result = actuate_hints(hints, config, runtime, 3, 6)
+        actuate_hints(hints, config, runtime, 3, 6)
         self.assertEqual(config.expect_max_files_changed, 3)  # floor at 3
 
     def test_increase_iterations(self):

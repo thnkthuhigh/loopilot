@@ -727,12 +727,21 @@ class CopilotOperator:
                     )
                 except Exception:
                     pass
-                narr.build_decision_trace(
+                trace = narr.build_decision_trace(
                     iteration=iteration,
                     diagnosis=dx,
                     eval_result=ev,
                     decision=decision,
                 )
+                # Write per-iteration structured log using narrative_formats
+                try:
+                    from .narrative_formats import format_iteration_log
+                    live_view = narr.build_live(self.runtime, self.config)
+                    iter_log = format_iteration_log(iteration, live_view, trace)
+                    log_path = self._artifact_path(iteration, 'narrative-log.txt')
+                    log_path.write_text(iter_log, encoding='utf-8')
+                except Exception:
+                    pass
         except Exception:
             pass  # Narrative trace is best-effort
 
@@ -1982,6 +1991,10 @@ class CopilotOperator:
                     result['narrativeUiPath'] = str(narrative_ui_path)
                     result['_narrativeEngine'] = narr  # For CLI access
                     logger.info('Narrative UI written: %s', narrative_ui_path)
+
+                    # Persist decision traces for past-run replay
+                    traces_path = narrative_ui_path.parent / 'decision-traces.json'
+                    dump_json(traces_path, narr.serialize_traces())
             except Exception:
                 pass  # Narrative UI is best-effort
 

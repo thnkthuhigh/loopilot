@@ -811,10 +811,24 @@ def _explain(
         print('[explain] No run found. Specify --run-id or run the operator first.', file=sys.stderr)
         return 1
 
-    # Try reading pre-rendered narrative-ui.txt
-    ui_path = config.workspace / '.copilot-operator' / 'logs' / run_id / 'narrative-ui.txt'
+    run_log_dir = config.workspace / '.copilot-operator' / 'logs' / run_id
+
+    # Try reading pre-rendered narrative-ui.txt (fast path for full view)
+    ui_path = run_log_dir / 'narrative-ui.txt'
     if ui_path.exists() and not view:
         text = ui_path.read_text(encoding='utf-8')
+        # Append decision traces from persisted file if available
+        traces_path = run_log_dir / 'decision-traces.json'
+        if traces_path.exists() and 'DECISION TRACE' not in text:
+            try:
+                from .narrative_engine import NarrativeEngine
+                traces_data = json.loads(traces_path.read_text(encoding='utf-8'))
+                traces = NarrativeEngine.load_traces(traces_data)
+                if traces:
+                    trace_text = '\n\n'.join(t.render() for t in traces)
+                    text += f'\n\n═══ DECISION TRACE ═══\n{trace_text}'
+            except Exception:
+                pass
         if as_json:
             print(json.dumps({'runId': run_id, 'narrativeUi': text}, indent=2, ensure_ascii=False))
         else:
@@ -832,20 +846,34 @@ def _explain(
 
     engine = NarrativeEngine()
 
+    # Load persisted decision traces for past runs
+    traces_path = run_log_dir / 'decision-traces.json'
+    if traces_path.exists():
+        try:
+            traces_data = json.loads(traces_path.read_text(encoding='utf-8'))
+            for trace in NarrativeEngine.load_traces(traces_data):
+                engine.record_decision(trace)
+        except Exception:
+            pass
+
     # Build requested view(s)
-    if view == 'live' or not view:
-        live_view = engine.build_live(state, config)
-        if view == 'live':
-            print(live_view.render())
-            return 0
+    if view == 'live':
+        print(engine.build_live(state, config).render())
+        return 0
 
-    if view == 'summary' or not view:
-        summary_view = engine.build_summary(state, summary or {}, config)
-        if view == 'summary':
-            print(summary_view.render())
-            return 0
+    if view == 'trace':
+        text = engine.render_full_trace()
+        if as_json:
+            print(json.dumps({'runId': run_id, 'traces': engine.serialize_traces()}, indent=2, ensure_ascii=False))
+        else:
+            print(text)
+        return 0
 
-    if view == 'memory' or not view:
+    if view == 'summary':
+        print(engine.build_summary(state, summary or {}, config).render())
+        return 0
+
+    if view == 'memory':
         mission = None
         try:
             from .mission_memory import load_mission
@@ -864,13 +892,23 @@ def _explain(
             rules = load_rules(config.workspace)
         except Exception:
             pass
-        mem_view = engine.build_memory(mission=mission, insights=insights, rules=rules)
-        if view == 'memory':
-            print(mem_view.render())
-            return 0
+        print(engine.build_memory(mission=mission, insights=insights, rules=rules).render())
+        return 0
 
-    # Render all views
-    full = engine.render_all_views(state, summary or {}, config)
+    # Render all views (default)
+    mission = None
+    try:
+        from .mission_memory import load_mission
+        mission = load_mission(config.workspace)
+    except Exception:
+        pass
+    rules = None
+    try:
+        from .meta_learner import load_rules
+        rules = load_rules(config.workspace)
+    except Exception:
+        pass
+    full = engine.render_all_views(state, summary or {}, config, mission=mission, rules=rules)
     if as_json:
         print(json.dumps({'runId': run_id, 'narrativeUi': full}, indent=2, ensure_ascii=False))
     else:
@@ -1102,7 +1140,7 @@ def build_parser() -> argparse.ArgumentParser:
     explain = subparsers.add_parser('explain', help='Show the structured AI Narrative UI: Live, Decision Trace, Summary, Memory.')
     _add_common_arguments(explain)
     explain.add_argument('--run-id', help='Show narrative for a specific run ID.')
-    explain.add_argument('--view', choices=['live', 'summary', 'memory'], help='Show only a specific view.')
+    explain.add_argument('--view', choices=['live', 'trace', 'summary', 'memory'], help='Show only a specific view.')
     explain.add_argument('--json', action='store_true', dest='output_json', help='Output as JSON.')
     explain.set_defaults(handler=lambda args: _explain(args.config, args.workspace, args.run_id, args.view, args.output_json))
 

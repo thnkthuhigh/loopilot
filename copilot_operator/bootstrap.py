@@ -918,14 +918,31 @@ def format_operator_focus(focus: dict[str, Any]) -> str:
 
 
 def format_operator_status(status: dict[str, Any]) -> str:
-    lines = [
+    lines: list[str] = []
+
+    # Narrative Engine LiveNarrative (structured agent voice)
+    try:
+        from .narrative_engine import NarrativeEngine
+        engine = NarrativeEngine()
+
+        class _WatchConfig:
+            max_iterations = status.get('maxIterations', 6) or 6
+            target_score = status.get('targetScore', 85) or 85
+
+        live = engine.build_live(status, _WatchConfig())
+        lines.append(live.render())
+        lines.append('')
+    except Exception:
+        pass
+
+    lines.extend([
         '=== Copilot Operator Status ===',
         f"Status: {status.get('status', 'not_started')}",
         f"Goal: {status.get('goal', '') or '(none yet)'}",
         f"Goal profile: {status.get('goalProfile', '') or 'default'}",
         f"Run ID: {status.get('runId', '') or '(not started)'}",
         f"Iterations completed: {status.get('iterationsCompleted', 0)}",
-    ]
+    ])
     insight = status.get('workspaceInsight') or {}
     if insight.get('ecosystem'):
         lines.append(f"Workspace ecosystem: {insight.get('ecosystem')}")

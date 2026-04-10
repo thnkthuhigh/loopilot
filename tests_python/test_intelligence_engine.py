@@ -13,7 +13,6 @@ from copilot_operator.adaptive_strategy import (
     RunFeedback,
 )
 from copilot_operator.context_budget import (
-    ContextBudget,
     PromptSection,
     allocate_budget,
     build_budgeted_sections,
@@ -25,7 +24,6 @@ from copilot_operator.self_eval import (
     evaluate_iteration,
     render_eval_for_prompt,
 )
-
 
 # ===================================================================
 # Context Budget Tests
@@ -89,7 +87,7 @@ class TestAllocateBudget(unittest.TestCase):
             PromptSection(name='critical', content='x' * 4000, priority=0, compressible=False),
             PromptSection(name='low', content='x' * 20000, priority=3),
         ]
-        budget = allocate_budget(sections, max_tokens=3000)
+        allocate_budget(sections, max_tokens=3000)
         self.assertTrue(sections[1].was_compressed or sections[1].was_dropped)
 
     def test_score_declining_gets_more_budget(self):
