@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .adaptive_strategy import AdaptiveEngine, RunFeedback
 from .adversarial import build_critic_prompt, should_run_critic
 from .bootstrap import _merge_vscode_settings, cleanup_run_logs  # noqa: F401
 from .brain import (
@@ -25,6 +26,7 @@ from .brain import (
     render_insights_for_prompt,
 )
 from .config import OperatorConfig
+from .context_budget import PromptSection, build_budgeted_sections
 from .cross_repo_brain import (
     export_rules_as_insights,
     load_shared_brain,
@@ -95,6 +97,7 @@ from .scheduler import (
     render_scheduler_plan,
     update_plan_status,
 )
+from .self_eval import evaluate_iteration, render_eval_for_prompt
 from .session_store import extract_response_text, get_latest_request, request_needs_continue
 from .snapshot import (
     SnapshotManager,
@@ -971,6 +974,15 @@ class CopilotOperator:
         except Exception:
             self._archive_context = ''
 
+        # --- Adaptive Strategy Engine: mid-run learning ---
+        try:
+            self._adaptive_engine = AdaptiveEngine(goal_type=classify_goal(goal_text))
+        except Exception:
+            self._adaptive_engine = AdaptiveEngine()
+
+        # --- Self-Eval: iteration feedback loop ---
+        self._last_validation_results: list[dict[str, Any]] = []
+
         return goal_text, Decision(action='continue', reason='Initial execution', next_prompt=goal_text, reason_code='INITIAL_EXECUTION'), 1
 
     def _prepare_resume_run(self, goal: str | None) -> tuple[str, Decision, int]:
@@ -1051,10 +1063,54 @@ class CopilotOperator:
         except Exception:
             self._archive_context = ''
 
+        # --- Adaptive Strategy Engine: mid-run learning ---
+        try:
+            self._adaptive_engine = AdaptiveEngine(goal_type=classify_goal(goal_text))
+        except Exception:
+            self._adaptive_engine = AdaptiveEngine()
+
+        # --- Self-Eval: iteration feedback loop ---
+        self._last_validation_results: list[dict[str, Any]] = []
+
         return goal_text, Decision(action='continue', reason=reason, next_prompt=next_prompt, reason_code=reason_code), len(history) + 1
 
     def _build_prompt(self, goal: str, decision: Decision, validation_results: list[dict[str, Any]]) -> str:
         history = self.runtime.get('history', [])
+
+        # --- Self-Evaluation Feedback Loop ---
+        self_eval_text = ''
+        try:
+            if history and len(history) >= 1:
+                ev = evaluate_iteration(
+                    iteration=len(history),
+                    history=history,
+                    validation_before=getattr(self, '_last_validation_results', None),
+                    validation_after=validation_results,
+                )
+                self_eval_text = render_eval_for_prompt(ev)
+
+                # Feed adaptive engine
+                adaptive = getattr(self, '_adaptive_engine', None)
+                if adaptive:
+                    loops = self._diagnose(len(history) + 1).loops
+                    loop_detected = any(lp.detected for lp in loops)
+                    loop_kind = next((lp.kind for lp in loops if lp.detected), '')
+                    score_before = history[-2].get('score', 0) if len(history) >= 2 else 0
+                    score_after = history[-1].get('score', 0) or 0
+                    adaptive.record_feedback(RunFeedback(
+                        iteration=len(history),
+                        score_before=score_before or 0,
+                        score_after=score_after,
+                        had_blockers=bool(history[-1].get('blockers')),
+                        validation_passed=all(v.get('status') == 'pass' for v in validation_results if v.get('required')),
+                        files_changed=len(history[-1].get('changedFiles', [])),
+                        loop_detected=loop_detected,
+                        loop_kind=loop_kind,
+                    ))
+        except Exception:
+            pass
+        # Store current validations for next iteration's comparison
+        self._last_validation_results = validation_results
 
         # Intelligence: analyse current state for prompt enrichment
         dx = self._diagnose(len(history) + 1)
@@ -1217,6 +1273,43 @@ class CopilotOperator:
         if archive_text:
             full_intelligence = f'{full_intelligence}\n\n{archive_text}' if full_intelligence else archive_text
 
+        # Self-Evaluation — what worked/failed last iteration
+        if self_eval_text:
+            full_intelligence = f'{full_intelligence}\n\n{self_eval_text}' if full_intelligence else self_eval_text
+
+        # Adaptive Strategy — mid-run learning directives
+        adaptive = getattr(self, '_adaptive_engine', None)
+        if adaptive:
+            adaptive_text = adaptive.get_directives()
+            if adaptive_text:
+                full_intelligence = f'{full_intelligence}\n\n{adaptive_text}' if full_intelligence else adaptive_text
+
+        # --- Context Budget: compress/drop sections if needed ---
+        try:
+            score_declining = False
+            if len(history) >= 2:
+                prev_score = history[-2].get('score', 0) or 0
+                curr_score = history[-1].get('score', 0) or 0
+                score_declining = curr_score < prev_score
+            sections = [
+                PromptSection(name='intelligence', content=full_intelligence or '', priority=1),
+                PromptSection(name='brain', content=brain_text, priority=2),
+                PromptSection(name='intention', content=intention_text, priority=2),
+                PromptSection(name='cross_repo', content=cross_repo_text, priority=3),
+                PromptSection(name='repo_map', content=self._get_repo_map_text(goal), priority=4),
+            ]
+            full_intelligence, _budget = build_budgeted_sections(
+                sections, max_tokens=6000, score_declining=score_declining,
+            )
+            # Extract individual texts from sections after budgeting
+            section_map = {s.name: s.content for s in sections}
+            brain_text = section_map.get('brain', '')
+            intention_text = section_map.get('intention', '')
+            cross_repo_text = section_map.get('cross_repo', '')
+            repo_map_text = section_map.get('repo_map', '')
+        except Exception:
+            repo_map_text = self._get_repo_map_text(goal)
+
         context = build_prompt_context(
             history,
             validation_results,
@@ -1229,7 +1322,7 @@ class CopilotOperator:
             brain_text=brain_text,
             intention_text=intention_text,
             cross_repo_text=cross_repo_text,
-            repo_map_text=self._get_repo_map_text(goal),
+            repo_map_text=repo_map_text,
         )
         if not history:
             return build_initial_prompt(goal, self.config.target_score, context)
