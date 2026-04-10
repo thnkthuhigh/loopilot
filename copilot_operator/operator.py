@@ -639,6 +639,51 @@ class CopilotOperator:
                 self._post_run_hooks(result)
                 return result
 
+        # ── Pre-validation diff security scan ────────────────────────────
+        # Scan AI-generated changes for dangerous patterns BEFORE running
+        # test/lint/build commands that could execute malicious code.
+        try:
+            from .diff_scan import scan_workspace_diff
+            diff_scan_result = scan_workspace_diff(self.config.workspace)
+            if diff_scan_result.findings:
+                scan_path = self._artifact_path(iteration, 'diff-scan.json')
+                dump_json(scan_path, {
+                    'findings': [
+                        {'severity': f.severity, 'category': f.category,
+                         'pattern': f.pattern_name, 'file': f.file_path,
+                         'line': f.line_content, 'description': f.description}
+                        for f in diff_scan_result.findings
+                    ],
+                    'blocked': diff_scan_result.blocked,
+                    'filesScanned': diff_scan_result.files_scanned,
+                })
+                logger.warning('Diff security scan: %d finding(s)', len(diff_scan_result.findings))
+                self._live_print(diff_scan_result.render())
+
+                if diff_scan_result.blocked:
+                    logger.error('Diff scan BLOCKED validation — critical threat detected')
+                    self._live_print(
+                        f'{cyan(f"[{iteration}/{self.config.max_iterations}]")} '
+                        f'{status_badge("error")} ⛔ Diff scan blocked: critical security threat in AI-generated code'
+                    )
+                    # Rollback the dangerous changes
+                    if hasattr(self, '_snapshot_mgr'):
+                        from .snapshot import rollback_to_last_good
+                        rollback_to_last_good(self._snapshot_mgr)
+                    result = {
+                        'status': 'error',
+                        'reason': 'Diff security scan detected critical threats in AI-generated code',
+                        'reasonCode': 'DIFF_SCAN_BLOCKED',
+                        'diffScanFindings': [f.description for f in diff_scan_result.findings],
+                        'iterations': iteration,
+                        'stateFile': str(self.config.state_file),
+                    }
+                    dump_json(self.config.summary_file, result)
+                    self._post_run_hooks(result)
+                    return result
+        except Exception as exc:
+            logger.debug('Diff scan skipped: %s', exc)
+
         after_validation_results = run_validations(self.config.validation, self.config.workspace, phase='after_response')
         after_validation_path = self._artifact_path(iteration, 'validation.after.json')
         dump_json(after_validation_path, after_validation_results)

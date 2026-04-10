@@ -74,13 +74,24 @@ Your review instructions:
 2. Look for:
    - Logic errors or incorrect implementations
    - Missing edge cases or error handling
-   - Security vulnerabilities (injection, auth bypass, etc.)
+   - Security vulnerabilities (see SAST checklist below)
    - Gaps in test coverage for the changes
    - Breaking changes to existing functionality
    - Style/lint issues the Coder missed
-3. For each finding, report severity, category, file, and a concrete suggestion.
-4. Be honest about overall quality. If the work is good, say so.
-5. Do NOT make any code changes yourself — report only.
+3. **SAST Security Checklist** — explicitly check for each of these:
+   - [ ] **Injection**: SQL injection, command injection (os.system, subprocess with user input, child_process), template injection
+   - [ ] **Hardcoded Secrets**: API keys, passwords, tokens, private keys embedded in source code
+   - [ ] **Path Traversal**: User-controlled paths used in file operations without sanitization (../../)
+   - [ ] **Arbitrary Code Execution**: eval(), exec(), pickle.load(), yaml.unsafe_load(), Function() constructor
+   - [ ] **Insecure Deserialization**: Deserializing untrusted data (pickle, yaml.load, JSON.parse of user input into eval)
+   - [ ] **Data Exfiltration**: Unexpected HTTP requests, socket connections, or file writes to external paths
+   - [ ] **Destructive Operations**: rm -rf, shutil.rmtree, fs.rmSync on user-controlled paths
+   - [ ] **Insecure Crypto**: Hardcoded IVs, weak algorithms (MD5/SHA1 for security), Math.random() for secrets
+   - [ ] **Missing Auth/Authz**: New endpoints or functions that skip authentication or authorization checks
+   - [ ] **Sensitive Data Exposure**: Logging passwords/tokens, returning secrets in API responses
+4. For each finding, report severity, category, file, and a concrete suggestion.
+5. Be honest about overall quality. If the work is good, say so.
+6. Do NOT make any code changes yourself — report only.
 
 At the end of your reply, emit:
 <CRITIC_REPORT>
