@@ -1,8 +1,8 @@
 {
   "chat.useCustomAgentHooks": true,
-  "chat.agentFilesLocations": [
-    ".github/agents"
-  ],
+  "chat.agentFilesLocations": {
+    ".github/agents": true
+  },
   "chat.tools.global.autoApprove": true,
   "chat.autopilot.enabled": true,
   "chat.tools.terminal.enableAutoApprove": true,
