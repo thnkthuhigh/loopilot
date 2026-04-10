@@ -5,7 +5,7 @@
 > **Python:** ≥ 3.10  
 > **Trạng thái:** Narrative + Memory Hierarchy — runtime guard, stop controller, worker contract, CI, narrative layer, mission memory, memory promotion  
 > **Cập nhật:** 2026-04-10  
-> **Local commits:** 9 ahead of origin/main
+> **Remote:** synced with origin/main
 
 ---
 
@@ -13,10 +13,10 @@
 
 1. [Dự án là gì?](#1-dự-án-là-gì)
 2. [Kiến trúc tổng quan](#2-kiến-trúc-tổng-quan)
-3. [Danh sách module (39 file, ~12.400 dòng)](#3-danh-sách-module)
-4. [CLI — 23 lệnh](#4-cli--23-lệnh)
+3. [Danh sách module (39 file, ~14.400 dòng)](#3-danh-sách-module)
+4. [CLI — 25 lệnh](#4-cli--25-lệnh)
 5. [Tính năng đã hoàn thành](#5-tính-năng-đã-hoàn-thành)
-6. [Hệ thống test (475 test, 18 file)](#6-hệ-thống-test)
+6. [Hệ thống test (510 test, 20 file)](#6-hệ-thống-test)
 7. [Cấu hình (copilot-operator.yml)](#7-cấu-hình)
 8. [LLM Brain — 5 provider](#8-llm-brain--5-provider)
 9. [Tài liệu hiện có](#9-tài-liệu-hiện-có)
@@ -133,7 +133,7 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 | 38 | `mission_memory.py` | 230 | **NEW** Mission memory: project direction, objectives, lessons |
 | 39 | `memory_promotion.py` | 270 | **NEW** Memory promotion: rules for promoting facts between layers |
 
-**Tổng: 39 module, ~12.400 dòng code production**
+**Tổng: 39 module, ~14.400 dòng code production**
 
 ---
 
@@ -327,21 +327,30 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 
 ## 6. Hệ thống test
 
-**Tổng: 510 test, 19 file, tất cả PASS** ✅ (lint clean)
+**Tổng: 510 test, 20 file, tất cả PASS** ✅ (lint clean)
 
 | File test | Số test | Nội dung |
 |-----------|--------:|----------|
 | `tests/hooks.test.cjs` | 2 | Node.js hooks (state-gate, pre-chat) |
-| `tests_python/test_operator.py` | 58 | Core operator loop, circuit breaker, retry logic |
-| `tests_python/test_new_modules.py` | 48 | Brain, meta-learner, adversarial, snapshot, reasoning |
-| `tests_python/test_new_features.py` | 54 | Goal decomposer, planner, scheduler, repo ops, prompts |
-| `tests_python/test_features_af.py` | 70 | LLM brain, repo map, intention guard, session store, cross-repo brain |
-| `tests_python/test_hardening.py` | 50 | Dashboard, nightly, ROI, policy, GitHub integration, worker |
-| `tests_python/test_llm_brain.py` | 47 | LLM provider tests (all 5 providers) |
-| `tests_python/test_terminal_benchmark.py` | 51 | Terminal runner, benchmark suite |
+| `tests_python/test_operator.py` | 24 | Core operator loop, circuit breaker, retry logic |
+| `tests_python/test_new_modules.py` | 47 | Brain, meta-learner, adversarial, snapshot, reasoning |
+| `tests_python/test_new_features.py` | 41 | Goal decomposer, planner, scheduler, repo ops, prompts |
+| `tests_python/test_features_af.py` | 48 | LLM brain, repo map, intention guard, session store, cross-repo brain |
+| `tests_python/test_hardening.py` | 39 | Dashboard, nightly, ROI, policy, GitHub integration, worker |
+| `tests_python/test_llm_brain.py` | 35 | LLM provider tests (all 5 providers) |
+| `tests_python/test_terminal_benchmark.py` | 42 | Terminal runner, benchmark suite |
 | `tests_python/test_checklist_features.py` | 41 | v2.3.0 features: SLA, compaction, changelog, conflicts, rubric |
 | `tests_python/test_hardening_v2.py` | 54 | Runtime guard, stop controller, worker contract, CI integration |
-| `tests_python/test_narrative_memory.py` | 35 | **NEW** Run narrative, mission memory, memory promotion |
+| `tests_python/test_narrative_memory.py` | 35 | Run narrative, mission memory, memory promotion |
+| `tests_python/test_auto_resume.py` | 7 | Auto-resume sau crash/interrupt |
+| `tests_python/test_context_optimization.py` | 8 | Context window optimization |
+| `tests_python/test_error_recovery.py` | 12 | Error recovery strategies |
+| `tests_python/test_p3_p4.py` | 25 | Phase 3+4 integration (planner + scheduler) |
+| `tests_python/test_risk_gate.py` | 6 | Risk gate evaluation |
+| `tests_python/test_scheduler.py` | 12 | Multi-session scheduler |
+| `tests_python/test_stop_controller.py` | 15 | Stop controller logic |
+| `tests_python/test_stress_edge_cases.py` | 10 | Stress tests, edge cases |
+| `tests_python/test_validation_autofill.py` | 9 | Validation command autofill |
 
 ### Chạy test
 
