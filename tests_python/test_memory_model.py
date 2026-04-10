@@ -194,13 +194,20 @@ class TestExtractKeywords(unittest.TestCase):
 
 class TestScoreText(unittest.TestCase):
     def test_all_match(self):
-        self.assertEqual(_score_text('auth login module', ['auth', 'login', 'module']), 1.0)
+        # BM25 scoring: all keywords present should score high
+        score = _score_text('auth login module', ['auth', 'login', 'module'])
+        self.assertGreater(score, 0.5)
 
     def test_partial(self):
-        self.assertAlmostEqual(_score_text('auth works fine', ['auth', 'login']), 0.5)
+        # Partial match should score lower than full match
+        full = _score_text('auth login module', ['auth', 'login', 'module'])
+        partial = _score_text('auth works fine', ['auth', 'login'])
+        self.assertGreater(partial, 0.0)
+        self.assertLess(partial, full)
 
     def test_none(self):
-        self.assertEqual(_score_text('hello world', ['auth']), 0.0)
+        score = _score_text('hello world', ['auth'])
+        self.assertLess(score, 0.1)
 
     def test_empty(self):
         self.assertEqual(_score_text('', ['auth']), 0.0)

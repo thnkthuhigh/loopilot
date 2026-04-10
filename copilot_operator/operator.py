@@ -38,7 +38,9 @@ from .logging_config import get_logger
 from .memory_promotion import PromotionThresholds, run_promotion_cycle
 from .meta_learner import apply_meta_learning, load_rules, render_guardrails
 from .mission_memory import (
+    check_mission_drift,
     load_mission,
+    render_drift_correction,
     render_mission_for_prompt,
     save_mission,
     update_mission_from_run,
@@ -951,6 +953,7 @@ class CopilotOperator:
             hits = query_archive(
                 self.config.workspace, goal_text,
                 max_results=3, exclude_run_id=run_id,
+                llm_brain=getattr(self, '_llm_brain', None),
             )
             if hits:
                 self._archive_context = render_archive_hits_for_prompt(hits)
@@ -1027,6 +1030,7 @@ class CopilotOperator:
             hits = query_archive(
                 self.config.workspace, goal_text,
                 max_results=3, exclude_run_id=run_id,
+                llm_brain=getattr(self, '_llm_brain', None),
             )
             self._archive_context = render_archive_hits_for_prompt(hits) if hits else ''
         except Exception:
@@ -1089,11 +1093,33 @@ class CopilotOperator:
         if mission_text:
             full_intelligence = f'{mission_text}\n\n{full_intelligence}' if full_intelligence else mission_text
 
-        # Task Ledger — structured per-run state (todo/doing/done/blocked)
+        # Mission Drift Check — detect and correct misalignment
+        try:
+            mission = load_mission(self.config.workspace)
+            drift = check_mission_drift(
+                mission, goal,
+                current_action=decision.next_prompt or '',
+                files_changed=list(self.runtime.get('allChangedFiles', [])),
+            )
+            if drift.drifted:
+                drift_text = render_drift_correction(drift)
+                if drift_text:
+                    # Drift correction goes FIRST — highest authority
+                    full_intelligence = f'{drift_text}\n\n{full_intelligence}' if full_intelligence else drift_text
+                    logger.warning('Mission drift detected: %s', drift.severity)
+        except Exception:
+            pass  # Drift check is best-effort
+
+        # Task Ledger + Priority Pressure — what to focus on RIGHT NOW
         try:
             if getattr(self, '_task_ledger', None):
-                from .task_ledger import render_ledger_for_prompt
-                ledger_text = render_ledger_for_prompt(self._task_ledger)
+                from .task_ledger import compute_priority_pressure, render_ledger_for_prompt
+                priority = compute_priority_pressure(
+                    self._task_ledger,
+                    plan=self.runtime.get('plan'),
+                    target_score=self.config.target_score,
+                )
+                ledger_text = render_ledger_for_prompt(self._task_ledger, priority=priority)
                 if ledger_text:
                     full_intelligence = f'{full_intelligence}\n\n{ledger_text}' if full_intelligence else ledger_text
         except Exception:

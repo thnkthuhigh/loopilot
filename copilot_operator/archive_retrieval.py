@@ -1,4 +1,8 @@
-"""Archive Retrieval — keyword search over past runs for relevant context.
+"""Archive Retrieval — semantic-aware search over past runs.
+
+Scoring uses BM25 (term frequency × inverse document frequency) instead of
+raw keyword counting, plus n-gram matching for partial hits and optional
+LLM reranking when an LLM Brain is available.
 
 The archive layer stores:
   - run narratives (prose + done explanation)
@@ -19,11 +23,13 @@ from __future__ import annotations
 __all__ = [
     'ArchiveHit',
     'ArchiveQuery',
+    'extract_keywords',
     'query_archive',
     'render_archive_hits_for_prompt',
 ]
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -86,16 +92,96 @@ def extract_keywords(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Scoring
+# Scoring — BM25 with n-gram boost
 # ---------------------------------------------------------------------------
 
-def _score_text(text: str, keywords: list[str]) -> float:
-    """Score a text blob against keywords. Returns 0.0–1.0."""
+# BM25 parameters (standard defaults)
+_BM25_K1 = 1.2
+_BM25_B = 0.75
+
+
+def _tokenize(text: str) -> list[str]:
+    """Tokenize text into lowercase words (3+ chars)."""
+    return re.findall(r'[a-zA-Z_][a-zA-Z0-9_]{2,}', text.lower())
+
+
+def _compute_idf(keyword: str, doc_count: int, docs_containing: int) -> float:
+    """Inverse document frequency for a keyword."""
+    if doc_count == 0 or docs_containing == 0:
+        return 0.0
+    return math.log((doc_count - docs_containing + 0.5) / (docs_containing + 0.5) + 1.0)
+
+
+def _bm25_score_single(
+    text_tokens: list[str],
+    keyword: str,
+    avg_doc_len: float,
+    idf: float,
+) -> float:
+    """BM25 score for a single keyword against a tokenized document."""
+    tf = text_tokens.count(keyword)
+    if tf == 0:
+        return 0.0
+    doc_len = len(text_tokens)
+    numerator = tf * (_BM25_K1 + 1)
+    denominator = tf + _BM25_K1 * (1 - _BM25_B + _BM25_B * doc_len / max(avg_doc_len, 1))
+    return idf * (numerator / denominator)
+
+
+def _ngram_boost(text: str, keywords: list[str], n: int = 3) -> float:
+    """Boost score for partial matches via character n-grams.
+
+    Catches cases where keyword = 'authentication' and text has 'auth'.
+    Returns 0.0–0.3 bonus.
+    """
     if not text or not keywords:
         return 0.0
     text_lower = text.lower()
-    hits = sum(1 for kw in keywords if kw in text_lower)
-    return hits / len(keywords)
+    text_ngrams = {text_lower[i:i + n] for i in range(len(text_lower) - n + 1)} if len(text_lower) >= n else set()
+    if not text_ngrams:
+        return 0.0
+
+    total_overlap = 0.0
+    for kw in keywords:
+        if len(kw) < n:
+            continue
+        kw_ngrams = {kw[i:i + n] for i in range(len(kw) - n + 1)}
+        if kw_ngrams:
+            overlap = len(kw_ngrams & text_ngrams) / len(kw_ngrams)
+            total_overlap += overlap
+    avg_overlap = total_overlap / len(keywords) if keywords else 0.0
+    return min(avg_overlap * 0.3, 0.3)  # cap at 0.3 boost
+
+
+def _score_text(text: str, keywords: list[str]) -> float:
+    """Score a text blob against keywords using BM25 + n-gram boost.
+
+    Returns 0.0–1.0.
+    """
+    if not text or not keywords:
+        return 0.0
+    text_tokens = _tokenize(text)
+    if not text_tokens:
+        return 0.0
+
+    # Simplified BM25: treat each text as a single doc, use uniform IDF
+    avg_doc_len = float(len(text_tokens))
+    total = 0.0
+    for kw in keywords:
+        tf = text_tokens.count(kw)
+        if tf > 0:
+            # Approximate IDF (assume keyword appears in ~30% of docs)
+            idf = math.log(1.0 + (1.0 / 0.3))
+            total += _bm25_score_single(text_tokens, kw, avg_doc_len, idf)
+
+    # Normalize to 0–1 range
+    max_possible = len(keywords) * math.log(1.0 + (1.0 / 0.3)) * (_BM25_K1 + 1)
+    bm25_normalized = min(total / max_possible, 1.0) if max_possible > 0 else 0.0
+
+    # Add n-gram boost for partial/fuzzy matches
+    ngram = _ngram_boost(text, keywords)
+
+    return min(bm25_normalized + ngram, 1.0)
 
 
 def _extract_snippet(text: str, keywords: list[str], max_len: int = 200) -> str:
@@ -230,10 +316,13 @@ def query_archive(
     extra_keywords: list[str] | None = None,
     max_results: int = 5,
     exclude_run_id: str = '',
+    llm_brain: object | None = None,
 ) -> list[ArchiveHit]:
     """Query the archive for runs relevant to the given goal.
 
-    Searches narratives and ledgers using keyword matching.
+    Uses BM25 scoring with n-gram boost. If an LLM Brain is provided and
+    ready, the top candidates are reranked for semantic relevance.
+
     Returns hits sorted by relevance, deduplicated per run_id.
     """
     keywords = extract_keywords(goal)
@@ -255,6 +344,20 @@ def query_archive(
     all_hits = _scan_narratives(log_dir, query, keywords)
     all_hits.extend(_scan_ledgers(log_dir, query, keywords))
 
+    # Corpus-level IDF: count how many docs contain each keyword
+    if all_hits:
+        doc_count = len(all_hits)
+        for hit in all_hits:
+            hit_tokens = set(_tokenize(hit.snippet))
+            boosted = 0.0
+            for kw in keywords:
+                docs_with_kw = sum(1 for h in all_hits if kw in _tokenize(h.snippet))
+                if kw in hit_tokens and docs_with_kw < doc_count:
+                    # Rare terms get a boost
+                    idf = _compute_idf(kw, doc_count, docs_with_kw)
+                    boosted += idf * 0.05  # small corpus-level boost
+            hit.relevance = min(hit.relevance + boosted, 1.0)
+
     # Deduplicate: keep best hit per run_id
     best_per_run: dict[str, ArchiveHit] = {}
     for hit in all_hits:
@@ -262,9 +365,71 @@ def query_archive(
         if not existing or hit.relevance > existing.relevance:
             best_per_run[hit.run_id] = hit
 
-    # Sort by relevance descending, cap at max_results
+    # Sort by relevance descending
     results = sorted(best_per_run.values(), key=lambda h: h.relevance, reverse=True)
+
+    # LLM reranking: if brain is available, rerank top candidates
+    if llm_brain and len(results) > 1:
+        results = _llm_rerank(results, goal, llm_brain, max_results)
+
     return results[:max_results]
+
+
+def _llm_rerank(
+    hits: list[ArchiveHit],
+    goal: str,
+    llm_brain: object,
+    max_results: int,
+) -> list[ArchiveHit]:
+    """Use LLM Brain to rerank archive hits by semantic relevance.
+
+    Falls back to original order if LLM is unavailable or fails.
+    """
+    try:
+        brain = llm_brain  # type: ignore[assignment]
+        if not getattr(brain, 'is_ready', False):
+            return hits
+
+        # Build a compact prompt for reranking
+        candidates = []
+        for i, hit in enumerate(hits[:max_results * 2]):  # rerank top 2x
+            candidates.append(f'{i}: goal="{hit.goal[:60]}" outcome={hit.outcome} snippet="{hit.snippet[:80]}"')
+
+        prompt = (
+            f'Current goal: "{goal[:100]}"\n\n'
+            f'Past runs:\n' + '\n'.join(candidates) + '\n\n'
+            'Rank the past runs by relevance to the current goal. '
+            'Return ONLY a comma-separated list of indices, most relevant first. '
+            'Example: 2,0,1'
+        )
+
+        response = brain.ask(prompt, max_tokens=100)
+        if not response:
+            return hits
+
+        # Parse response: extract indices
+        indices = []
+        for token in re.findall(r'\d+', response):
+            idx = int(token)
+            if 0 <= idx < len(hits) and idx not in indices:
+                indices.append(idx)
+
+        if not indices:
+            return hits
+
+        # Reorder hits by LLM ranking
+        reranked = [hits[i] for i in indices if i < len(hits)]
+        # Append any remaining hits not mentioned
+        seen = set(indices)
+        for i, hit in enumerate(hits):
+            if i not in seen:
+                reranked.append(hit)
+
+        logger.info('Archive LLM reranked: %s', indices[:5])
+        return reranked
+
+    except Exception:
+        return hits  # reranking is best-effort
 
 
 def render_archive_hits_for_prompt(hits: list[ArchiveHit]) -> str:
