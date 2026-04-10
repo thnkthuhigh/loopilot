@@ -5,7 +5,7 @@
 > **Python:** ≥ 3.10  
 > **Trạng thái:** Hardened — runtime guard, stop controller, worker contract, CI integration  
 > **Cập nhật:** 2026-04-10  
-> **Local commits:** 6 ahead of origin/main
+> **Local commits:** 7 ahead of origin/main
 
 ---
 
@@ -407,7 +407,7 @@ LLM Brain được dùng cho:
 | `HUONG_DAN_SU_DUNG.md` | Hướng dẫn sử dụng tiếng Việt (3 bước) |
 | `LICENSE` | MIT License |
 | `docs/COPILOT_OPERATOR_MASTER_PLAN.md` | Kế hoạch 8 phase chi tiết |
-| `docs/COPILOT_OPERATOR_CHECKLIST.md` | Checklist triển khai (71/103 ✓) |
+| `docs/COPILOT_OPERATOR_CHECKLIST.md` | Checklist triển khai (95/103 ✓) |
 | `docs/COPILOT_OPERATOR_BACKLOG.md` | Backlog items (OP-001 → OP-016) |
 | `docs/COPILOT_OPERATOR_GOAL_TEMPLATES.md` | 6 goal templates mẫu |
 | `docs/COPILOT_OPERATOR_RUNBOOK.md` | Runbook vận hành |
@@ -448,8 +448,6 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 |-----|-------|
 | Multi-session thực chiến | Scheduler chạy 2+ sessions song song trên repo thật |
 | Benchmark so sánh với đối thủ | Cần baseline từ SWE-Bench / Aider |
-| Multi-session thực chiến | Scheduler chạy 2+ sessions song song trên repo thật |
-| Runbook bổ sung | Thêm troubleshooting cho các lỗi mới phát hiện |
 
 ### Definition of Done — Phase hiện tại
 
@@ -458,8 +456,8 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 | Operator chạy được trên repo thật | ✅ 2 repo (note-cli + english) |
 | Validation thật đã được điền vào config | ✅ Jest + Vitest + ESLint |
 | Có goal templates thật | ✅ 3 templates per project |
-| Có 3+ session thành công | ✅ 8 sessions (4 toy + 4 real) |
-| Có runbook để người khác đọc và dùng | ⚠️ Có draft, cần bổ sung lỗi mới |
+| Có 3+ session thành công | ✅ 10 sessions (4 toy + 4 real + 2 production) |
+| Có runbook để người khác đọc và dùng | ✅ Có toàn bộ + troubleshooting 7 bugs |
 
 ---
 
