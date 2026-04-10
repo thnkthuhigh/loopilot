@@ -34,6 +34,8 @@ from .cross_repo_brain import (
     save_shared_brain,
 )
 from .goal_decomposer import build_replan_prompt, classify_goal, decompose_goal, decompose_goal_with_llm, should_replan
+from .hint_actuator import actuate_hints
+from .intelligence_telemetry import TelemetryAggregator
 from .intention_guard import learn_guardrails_from_history, render_combined_guardrails
 from .llm_brain import LLMBrain, load_llm_config_from_dict, load_llm_config_from_env, render_brain_status
 from .logging_config import get_logger
@@ -983,6 +985,9 @@ class CopilotOperator:
         # --- Self-Eval: iteration feedback loop ---
         self._last_validation_results: list[dict[str, Any]] = []
 
+        # --- Intelligence Telemetry: track source effectiveness ---
+        self._telemetry = TelemetryAggregator()
+
         return goal_text, Decision(action='continue', reason='Initial execution', next_prompt=goal_text, reason_code='INITIAL_EXECUTION'), 1
 
     def _prepare_resume_run(self, goal: str | None) -> tuple[str, Decision, int]:
@@ -1071,6 +1076,9 @@ class CopilotOperator:
 
         # --- Self-Eval: iteration feedback loop ---
         self._last_validation_results: list[dict[str, Any]] = []
+
+        # --- Intelligence Telemetry: track source effectiveness ---
+        self._telemetry = TelemetryAggregator()
 
         return goal_text, Decision(action='continue', reason=reason, next_prompt=next_prompt, reason_code=reason_code), len(history) + 1
 
@@ -1307,6 +1315,23 @@ class CopilotOperator:
             intention_text = section_map.get('intention', '')
             cross_repo_text = section_map.get('cross_repo', '')
             repo_map_text = section_map.get('repo_map', '')
+
+            # --- Intelligence Telemetry: record what was injected ---
+            try:
+                telemetry = getattr(self, '_telemetry', None)
+                if telemetry and history:
+                    score_before = history[-2].get('score', 0) if len(history) >= 2 else 0
+                    score_after = history[-1].get('score', 0) or 0
+                    telemetry.record_iteration(
+                        [{'name': s.name, 'tokens_estimated': s.tokens_estimated,
+                          'was_compressed': s.was_compressed, 'was_dropped': s.was_dropped}
+                         for s in sections],
+                        score_before=score_before or 0,
+                        score_after=score_after,
+                        iteration=len(history),
+                    )
+            except Exception:
+                pass
         except Exception:
             repo_map_text = self._get_repo_map_text(goal)
 
@@ -1435,6 +1460,27 @@ class CopilotOperator:
             'Continue from the first unfinished task in the workspace.',
         )
         if dx.hints:
+            # Actuate hints — execute profile changes, scope narrowing, etc.
+            try:
+                actuation = actuate_hints(
+                    dx.hints, self.config, self.runtime,
+                    iteration, self.config.max_iterations,
+                )
+                if actuation.aborted:
+                    return Decision(
+                        action='stop',
+                        reason=f'Reasoning engine + hint actuator recommend abort: {actuation.actions_taken}',
+                        reason_code='HINT_ABORT',
+                    )
+                if actuation.actions_taken:
+                    logger.info('Hint actuation: %s', actuation.actions_taken)
+                # Check for baton override from switch_baton hint
+                baton_override = self.runtime.pop('_baton_override', None)
+                if baton_override:
+                    base_baton = f'{baton_override}\n\n{base_baton}'
+            except Exception:
+                pass  # Actuation is best-effort
+
             hint_text = format_diagnosis_for_prompt(dx)
             if hint_text:
                 base_baton = f'{hint_text}\n\n{base_baton}'
@@ -1900,6 +1946,24 @@ class CopilotOperator:
                 pass  # Mission update is best-effort
 
             # --- Memory Promotion: evaluate and apply promotions ---
+            try:
+                # --- Intelligence Telemetry: save and report ---
+                telemetry = getattr(self, '_telemetry', None)
+                if telemetry and run_id:
+                    telemetry_path = self.config.workspace / '.copilot-operator' / 'logs' / run_id / 'telemetry.json'
+                    telemetry.save(telemetry_path)
+                    report = telemetry.build_report()
+                    if report.wasteful_sources:
+                        logger.info('Telemetry: wasteful sources=%s', report.wasteful_sources)
+                    result['intelligenceReport'] = {
+                        'total_iterations': report.total_iterations,
+                        'total_tokens_spent': report.total_tokens_spent,
+                        'top_sources': report.top_sources,
+                        'wasteful_sources': report.wasteful_sources,
+                    }
+            except Exception:
+                pass  # Telemetry is best-effort
+
             try:
                 from dataclasses import asdict
                 rule_dicts = [asdict(r) for r in self._learned_rules] if self._learned_rules else []
