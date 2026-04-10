@@ -24,11 +24,16 @@ __all__ = [
     'LedgerEntry',
     'Commitments',
     'PriorityPressure',
+    'TaskPriority',
+    'PrioritizedTask',
+    'PriorityQueue',
     'load_ledger',
     'save_ledger',
     'update_ledger_from_iteration',
     'build_commitments',
     'compute_priority_pressure',
+    'build_priority_queue',
+    'escalate_priorities',
     'render_ledger_for_prompt',
 ]
 
@@ -252,6 +257,210 @@ class PriorityPressure:
     reasoning: str = ''                                    # why this is the priority
 
 
+# ---------------------------------------------------------------------------
+# Priority System — task-level priorities with escalation
+# ---------------------------------------------------------------------------
+
+class TaskPriority:
+    """Priority levels. Lower number = higher priority."""
+    P0_CRITICAL = 0   # Must fix NOW — blocks everything
+    P1_HIGH = 1       # Important — should be next
+    P2_MEDIUM = 2     # Normal work
+    P3_LOW = 3        # Nice to have — defer if anything else needs attention
+
+    @staticmethod
+    def label(level: int) -> str:
+        return {0: 'P0-CRITICAL', 1: 'P1-HIGH', 2: 'P2-MEDIUM', 3: 'P3-LOW'}.get(level, f'P{level}')
+
+    @staticmethod
+    def icon(level: int) -> str:
+        return {0: '🔴', 1: '🟠', 2: '🟡', 3: '⚪'}.get(level, '⚪')
+
+
+@dataclass(slots=True)
+class PrioritizedTask:
+    """A task with explicit priority, dependencies, and escalation tracking."""
+    id: str = ''
+    title: str = ''
+    priority: int = 2                                       # TaskPriority level
+    original_priority: int = 2                              # before any escalation
+    blocked_by: list[str] = field(default_factory=list)     # task ids this depends on
+    blocks: list[str] = field(default_factory=list)         # task ids that depend on this
+    status: str = 'pending'                                 # pending | active | done | deferred
+    escalation_reason: str = ''                             # why priority changed
+    mission_override: bool = False                          # True if mission forced this priority
+
+
+@dataclass(slots=True)
+class PriorityQueue:
+    """Ordered task queue with dependency awareness."""
+    tasks: list[PrioritizedTask] = field(default_factory=list)
+    iteration: int = 0
+
+    def next_actionable(self) -> PrioritizedTask | None:
+        """Return the highest-priority task that isn't blocked."""
+        for task in self.ordered():
+            if task.status in ('done', 'deferred'):
+                continue
+            if task.blocked_by:
+                # Check if all blockers are done
+                blocker_statuses = {
+                    t.id: t.status for t in self.tasks if t.id in task.blocked_by
+                }
+                if any(s != 'done' for s in blocker_statuses.values()):
+                    continue
+            return task
+        return None
+
+    def ordered(self) -> list[PrioritizedTask]:
+        """Return tasks ordered by priority (P0 first), then by dependency depth."""
+        return sorted(
+            self.tasks,
+            key=lambda t: (
+                t.priority,
+                0 if not t.blocked_by else len(t.blocked_by),
+                t.id,
+            ),
+        )
+
+    def mark_done(self, task_id: str) -> None:
+        for t in self.tasks:
+            if t.id == task_id:
+                t.status = 'done'
+                break
+
+    def defer(self, task_id: str) -> None:
+        for t in self.tasks:
+            if t.id == task_id:
+                t.status = 'deferred'
+                break
+
+
+def build_priority_queue(
+    plan: dict[str, Any] | None,
+    ledger: TaskLedger,
+    mission_priorities: list[str] | None = None,
+) -> PriorityQueue:
+    """Build a priority queue from the plan milestones.
+
+    Assigns priorities based on:
+    - Validation/test tasks → P1 (must pass)
+    - Tasks matching mission top priority → P1
+    - Doc/style/cleanup tasks → P3
+    - Everything else → P2
+    """
+    queue = PriorityQueue(iteration=len(ledger.entries))
+    if not plan or not isinstance(plan, dict):
+        return queue
+
+    task_index = 0
+    for ms in plan.get('milestones', []):
+        for task_data in ms.get('tasks', []):
+            title = task_data.get('title', '')
+            status = task_data.get('status', 'pending')
+            task_id = f't{task_index}'
+            task_index += 1
+
+            # Classify priority from task content
+            lower = title.lower()
+            if status == 'done':
+                priority = TaskPriority.P2_MEDIUM
+            elif any(kw in lower for kw in ('test', 'lint', 'validate', 'verify', 'assert')):
+                priority = TaskPriority.P1_HIGH
+            elif any(kw in lower for kw in ('doc', 'readme', 'comment', 'style', 'format', 'cleanup')):
+                priority = TaskPriority.P3_LOW
+            else:
+                priority = TaskPriority.P2_MEDIUM
+
+            # Mission priority boost
+            mission_override = False
+            if mission_priorities:
+                top = mission_priorities[0].lower()
+                top_words = set(top.split())
+                title_words = set(lower.split())
+                if len(top_words & title_words) >= 2:
+                    priority = min(priority, TaskPriority.P1_HIGH)
+                    mission_override = True
+
+            pt = PrioritizedTask(
+                id=task_id,
+                title=title,
+                priority=priority,
+                original_priority=priority,
+                status='done' if status == 'done' else 'pending',
+                mission_override=mission_override,
+            )
+            queue.tasks.append(pt)
+
+    return queue
+
+
+def escalate_priorities(
+    queue: PriorityQueue,
+    ledger: TaskLedger,
+    target_score: int = 85,
+) -> list[str]:
+    """Automatically escalate task priorities based on pressure signals.
+
+    Rules:
+    1. If score is regressing → escalate blockers to P0
+    2. If stuck → escalate next actionable to P1
+    3. If a task blocks many others → escalate it (dependency cascade)
+    4. Time pressure: if many iterations passed, escalate remaining P2→P1
+
+    Returns list of escalation descriptions.
+    """
+    changes: list[str] = []
+    scores = [e.score for e in ledger.entries if e.score is not None]
+
+    is_regressing = len(scores) >= 2 and scores[-1] < scores[-2]
+    is_stuck = len(scores) >= 3 and len(set(scores[-3:])) == 1
+    iterations_spent = len(ledger.entries)
+
+    # Rule 1: regression → blockers to P0
+    if is_regressing and ledger.entries:
+        for blocker_text in ledger.entries[-1].blockers:
+            for t in queue.tasks:
+                if t.status == 'done':
+                    continue
+                if blocker_text.lower() in t.title.lower() and t.priority > TaskPriority.P0_CRITICAL:
+                    old = TaskPriority.label(t.priority)
+                    t.priority = TaskPriority.P0_CRITICAL
+                    t.escalation_reason = f'Score regressing ({scores[-2]}→{scores[-1]})'
+                    changes.append(f'{t.title}: {old} → P0-CRITICAL (regression)')
+
+    # Rule 2: stuck → next actionable to P1
+    if is_stuck:
+        nxt = queue.next_actionable()
+        if nxt and nxt.priority > TaskPriority.P1_HIGH:
+            old = TaskPriority.label(nxt.priority)
+            nxt.priority = TaskPriority.P1_HIGH
+            nxt.escalation_reason = 'Stuck — need new approach'
+            changes.append(f'{nxt.title}: {old} → P1-HIGH (stuck)')
+
+    # Rule 3: dependency cascade — if task blocks 2+ others, escalate
+    for t in queue.tasks:
+        if t.status == 'done':
+            continue
+        if len(t.blocks) >= 2 and t.priority > TaskPriority.P1_HIGH:
+            old = TaskPriority.label(t.priority)
+            t.priority = TaskPriority.P1_HIGH
+            t.escalation_reason = f'Blocks {len(t.blocks)} other tasks'
+            changes.append(f'{t.title}: {old} → P1-HIGH (blocks {len(t.blocks)} tasks)')
+
+    # Rule 4: time pressure — after 4 iterations, P2→P1
+    if iterations_spent >= 4:
+        for t in queue.tasks:
+            if t.status == 'done' or t.mission_override:
+                continue
+            if t.priority == TaskPriority.P2_MEDIUM:
+                t.priority = TaskPriority.P1_HIGH
+                t.escalation_reason = f'Time pressure ({iterations_spent} iterations)'
+                changes.append(f'{t.title}: P2 → P1-HIGH (time pressure)')
+
+    return changes
+
+
 def compute_priority_pressure(
     ledger: TaskLedger,
     plan: dict[str, Any] | None = None,
@@ -336,6 +545,7 @@ def compute_priority_pressure(
 def render_ledger_for_prompt(
     ledger: TaskLedger,
     priority: PriorityPressure | None = None,
+    queue: PriorityQueue | None = None,
 ) -> str:
     """Render the task ledger as a concise block for prompt injection.
 
@@ -371,6 +581,19 @@ def render_ledger_for_prompt(
             lines.append('  **Can defer:**')
             for d in priority.can_defer[:3]:
                 lines.append(f'    ↩ {d}')
+
+    # Priority queue — ordered task list with P0/P1/P2/P3
+    if queue and queue.tasks:
+        pending = [t for t in queue.ordered() if t.status not in ('done', 'deferred')]
+        if pending:
+            lines.append('\n**Task Queue (by priority):**')
+            for t in pending[:8]:
+                icon = TaskPriority.icon(t.priority)
+                label = TaskPriority.label(t.priority)
+                esc = f' ⬆ {t.escalation_reason}' if t.escalation_reason else ''
+                mission = ' 🎯' if t.mission_override else ''
+                blocked = ' ⛔ blocked' if t.blocked_by else ''
+                lines.append(f'  {icon} [{label}] {t.title}{esc}{mission}{blocked}')
 
     # Score trajectory (last 5)
     scores = [(e.iteration, e.score) for e in ledger.entries if e.score is not None]

@@ -38,6 +38,7 @@ from .logging_config import get_logger
 from .memory_promotion import PromotionThresholds, run_promotion_cycle
 from .meta_learner import apply_meta_learning, load_rules, render_guardrails
 from .mission_memory import (
+    MissionAuthority,
     check_mission_drift,
     load_mission,
     render_drift_correction,
@@ -950,10 +951,17 @@ class CopilotOperator:
         # --- Archive Retrieval: fetch relevant past context ---
         try:
             from .archive_retrieval import query_archive, render_archive_hits_for_prompt
+            current_phase = ''
+            try:
+                m = load_mission(self.config.workspace)
+                current_phase = m.current_phase
+            except Exception:
+                pass
             hits = query_archive(
                 self.config.workspace, goal_text,
                 max_results=3, exclude_run_id=run_id,
                 llm_brain=getattr(self, '_llm_brain', None),
+                current_phase=current_phase,
             )
             if hits:
                 self._archive_context = render_archive_hits_for_prompt(hits)
@@ -1027,10 +1035,17 @@ class CopilotOperator:
         try:
             from .archive_retrieval import query_archive, render_archive_hits_for_prompt
             run_id = str(runtime.get('runId', ''))
+            current_phase = ''
+            try:
+                m = load_mission(self.config.workspace)
+                current_phase = m.current_phase
+            except Exception:
+                pass
             hits = query_archive(
                 self.config.workspace, goal_text,
                 max_results=3, exclude_run_id=run_id,
                 llm_brain=getattr(self, '_llm_brain', None),
+                current_phase=current_phase,
             )
             self._archive_context = render_archive_hits_for_prompt(hits) if hits else ''
         except Exception:
@@ -1068,9 +1083,12 @@ class CopilotOperator:
 
         # Mission context: inject high-level project direction
         mission_text = ''
+        mission_authority = None
         try:
             mission = load_mission(self.config.workspace)
             mission_text = render_mission_for_prompt(mission)
+            if mission.hard_constraints or mission.priorities or mission.objectives:
+                mission_authority = MissionAuthority(mission)
         except Exception:
             pass
 
@@ -1093,6 +1111,47 @@ class CopilotOperator:
         if mission_text:
             full_intelligence = f'{mission_text}\n\n{full_intelligence}' if full_intelligence else mission_text
 
+        # Mission Authority — binding directives injected FIRST (highest authority)
+        try:
+            if mission_authority:
+                authority_block = mission_authority.render_authority_block()
+                if authority_block:
+                    full_intelligence = f'{authority_block}\n\n{full_intelligence}' if full_intelligence else authority_block
+
+                # Check if proposed action is vetoed
+                veto = mission_authority.evaluate_action(
+                    decision.next_prompt or '',
+                    goal=goal,
+                    files=list(self.runtime.get('allChangedFiles', [])),
+                )
+                if veto.vetoed:
+                    veto_text = (
+                        f'## 🚫 ACTION VETOED BY MISSION\n'
+                        f'**Reason:** {veto.reason}\n'
+                        f'**Constraint:** {veto.constraint}\n'
+                    )
+                    if veto.alternative:
+                        veto_text += f'**Do instead:** {veto.alternative}\n'
+                    full_intelligence = f'{veto_text}\n\n{full_intelligence}' if full_intelligence else veto_text
+                    logger.warning('Mission vetoed action: %s', veto.reason)
+
+                # Check if mission should override (score gap, misalignment)
+                latest_score = 0
+                if history:
+                    latest_score = history[-1].get('score', 0) or 0
+                override = mission_authority.override_decision(
+                    decision.next_prompt or '',
+                    current_score=latest_score,
+                    target_score=self.config.target_score,
+                    iteration=len(history) + 1,
+                )
+                if override:
+                    override_text = f'## ⚡ MISSION OVERRIDE\n**{override.instruction}**\n_Reason: {override.reason}_'
+                    full_intelligence = f'{override_text}\n\n{full_intelligence}' if full_intelligence else override_text
+                    logger.warning('Mission override: %s', override.instruction[:80])
+        except Exception:
+            pass  # Authority is best-effort
+
         # Mission Drift Check — detect and correct misalignment
         try:
             mission = load_mission(self.config.workspace)
@@ -1104,22 +1163,50 @@ class CopilotOperator:
             if drift.drifted:
                 drift_text = render_drift_correction(drift)
                 if drift_text:
-                    # Drift correction goes FIRST — highest authority
                     full_intelligence = f'{drift_text}\n\n{full_intelligence}' if full_intelligence else drift_text
                     logger.warning('Mission drift detected: %s', drift.severity)
         except Exception:
             pass  # Drift check is best-effort
 
-        # Task Ledger + Priority Pressure — what to focus on RIGHT NOW
+        # Task Ledger + Priority Pressure + Priority Queue
         try:
             if getattr(self, '_task_ledger', None):
-                from .task_ledger import compute_priority_pressure, render_ledger_for_prompt
+                from .task_ledger import (
+                    build_priority_queue,
+                    compute_priority_pressure,
+                    escalate_priorities,
+                    render_ledger_for_prompt,
+                )
                 priority = compute_priority_pressure(
                     self._task_ledger,
                     plan=self.runtime.get('plan'),
                     target_score=self.config.target_score,
                 )
-                ledger_text = render_ledger_for_prompt(self._task_ledger, priority=priority)
+                # Build and escalate priority queue
+                mission_priorities = None
+                try:
+                    m = load_mission(self.config.workspace)
+                    mission_priorities = m.priorities or None
+                except Exception:
+                    pass
+                queue = build_priority_queue(
+                    self.runtime.get('plan'),
+                    self._task_ledger,
+                    mission_priorities=mission_priorities,
+                )
+                escalations = escalate_priorities(queue, self._task_ledger, self.config.target_score)
+                if escalations:
+                    logger.info('Priority escalations: %s', escalations)
+
+                # Apply mission-forced priorities
+                if mission_authority:
+                    for pattern, prio in mission_authority.get_forced_priorities().items():
+                        for t in queue.tasks:
+                            if pattern in t.title.lower() and t.priority > prio:
+                                t.priority = prio
+                                t.mission_override = True
+
+                ledger_text = render_ledger_for_prompt(self._task_ledger, priority=priority, queue=queue)
                 if ledger_text:
                     full_intelligence = f'{full_intelligence}\n\n{ledger_text}' if full_intelligence else ledger_text
         except Exception:

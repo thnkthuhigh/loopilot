@@ -14,6 +14,9 @@ __all__ = [
     'MissionObjective',
     'Mission',
     'DriftCheckResult',
+    'MissionDirective',
+    'MissionVeto',
+    'MissionAuthority',
     'load_mission',
     'save_mission',
     'update_mission_from_run',
@@ -420,3 +423,237 @@ def render_drift_correction(drift: DriftCheckResult) -> str:
         lines.append(f'**Should align with:** {drift.aligned_objective}')
 
     return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Mission Authority — the decision-override layer
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class MissionDirective:
+    """A mandatory instruction from the mission that overrides operator decisions.
+
+    Directives are injected at the TOP of every prompt and MUST be followed.
+    """
+    id: str = ''
+    instruction: str = ''
+    reason: str = ''
+    priority: int = 0           # 0 = highest, lower = more important
+    source: str = 'mission'     # mission | constraint | escalation
+
+
+@dataclass(slots=True)
+class MissionVeto:
+    """A veto on a proposed action — mission says NO."""
+    vetoed: bool = False
+    reason: str = ''
+    constraint: str = ''        # which constraint triggered the veto
+    alternative: str = ''       # what to do instead
+
+
+class MissionAuthority:
+    """The authoritative layer that makes mission memory binding, not advisory.
+
+    This class wraps a Mission and provides decision-override capabilities:
+    - Veto actions that violate constraints
+    - Force priority on specific tasks
+    - Inject mandatory directives every iteration
+    - Override the plan when mission says so
+    """
+
+    def __init__(self, mission: Mission) -> None:
+        self.mission = mission
+        self._forced_priorities: dict[str, int] = {}
+        self._active_directives: list[MissionDirective] = []
+        self._build_directives()
+
+    def _build_directives(self) -> None:
+        """Generate directives from mission state."""
+        self._active_directives.clear()
+        idx = 0
+
+        # Hard constraints become permanent directives
+        for constraint in self.mission.hard_constraints:
+            self._active_directives.append(MissionDirective(
+                id=f'hc-{idx}',
+                instruction=f'MUST NOT: {constraint}',
+                reason='Hard mission constraint — non-negotiable',
+                priority=0,
+                source='constraint',
+            ))
+            idx += 1
+
+        # Top priority becomes a focus directive
+        if self.mission.priorities:
+            self._active_directives.append(MissionDirective(
+                id=f'pri-{idx}',
+                instruction=f'TOP PRIORITY: {self.mission.priorities[0]}',
+                reason='Mission-defined priority — should guide all decisions',
+                priority=1,
+                source='mission',
+            ))
+            idx += 1
+
+        # Active objectives with success criteria become directives
+        active_objs = [o for o in self.mission.objectives if o.status == 'active']
+        for obj in active_objs[:3]:
+            criteria = ', '.join(obj.success_criteria[:2]) if obj.success_criteria else ''
+            self._active_directives.append(MissionDirective(
+                id=f'obj-{idx}',
+                instruction=f'OBJECTIVE: {obj.description}' + (f' (criteria: {criteria})' if criteria else ''),
+                reason='Active mission objective',
+                priority=2,
+                source='mission',
+            ))
+            idx += 1
+
+    def evaluate_action(self, action: str, goal: str = '', files: list[str] | None = None) -> MissionVeto:
+        """Evaluate whether a proposed action is allowed by the mission.
+
+        Returns a MissionVeto. If vetoed=True, the action MUST NOT proceed.
+        """
+        action_lower = action.lower()
+        goal_lower = goal.lower()
+        combined = f'{action_lower} {goal_lower}'
+
+        for constraint in self.mission.hard_constraints:
+            constraint_lower = constraint.lower()
+
+            # Extract forbidden patterns
+            forbidden = re.findall(
+                r'(?:do not|never|must not|don\'t|cannot|shall not)\s+(.+?)(?:\.|$)',
+                constraint_lower,
+            )
+            for pattern in forbidden:
+                pattern_words = set(pattern.split())
+                combined_words = set(combined.split())
+                overlap = pattern_words & combined_words
+                if len(overlap) >= max(1, len(pattern_words) * 0.5):
+                    # Find alternative from mission objectives
+                    alt = ''
+                    active = [o for o in self.mission.objectives if o.status == 'active']
+                    if active:
+                        alt = f'Instead, work on: {active[0].description}'
+                    return MissionVeto(
+                        vetoed=True,
+                        reason=f'Action violates hard constraint: "{constraint}"',
+                        constraint=constraint,
+                        alternative=alt,
+                    )
+
+            # Direct keyword checks
+            if 'production' in constraint_lower and any(
+                kw in combined for kw in ('deploy', 'push to prod', 'production release')
+            ):
+                return MissionVeto(
+                    vetoed=True,
+                    reason=f'Production deployment blocked by constraint: "{constraint}"',
+                    constraint=constraint,
+                    alternative='Run in staging or test environment instead.',
+                )
+            if 'delete' in constraint_lower and 'delete' in combined:
+                return MissionVeto(
+                    vetoed=True,
+                    reason=f'Deletion blocked by constraint: "{constraint}"',
+                    constraint=constraint,
+                    alternative='Consider archiving instead of deleting.',
+                )
+
+        return MissionVeto(vetoed=False)
+
+    def force_priority(self, task_pattern: str, priority: int, reason: str = '') -> None:
+        """Force a specific priority on tasks matching the pattern.
+
+        Called by the operator when mission needs to override the plan.
+        """
+        self._forced_priorities[task_pattern.lower()] = priority
+        if reason:
+            self._active_directives.append(MissionDirective(
+                id=f'force-{len(self._active_directives)}',
+                instruction=f'PRIORITY OVERRIDE: Tasks matching "{task_pattern}" → P{priority}',
+                reason=reason,
+                priority=0,
+                source='escalation',
+            ))
+
+    def get_forced_priorities(self) -> dict[str, int]:
+        """Return the map of forced task priorities."""
+        return dict(self._forced_priorities)
+
+    def get_directives(self) -> list[MissionDirective]:
+        """Return all active directives, ordered by priority."""
+        return sorted(self._active_directives, key=lambda d: d.priority)
+
+    def render_authority_block(self) -> str:
+        """Render the authority block for prompt injection.
+
+        This goes at the VERY TOP of the prompt — above everything else.
+        Returns empty string if no active directives.
+        """
+        directives = self.get_directives()
+        if not directives:
+            return ''
+
+        lines = ['## 🔒 MISSION AUTHORITY (binding — must follow)']
+
+        for d in directives:
+            if d.source == 'constraint':
+                lines.append(f'🚫 {d.instruction}')
+            elif d.source == 'escalation':
+                lines.append(f'⚡ {d.instruction}')
+            else:
+                lines.append(f'🎯 {d.instruction}')
+
+        lines.append('')
+        lines.append('_These directives override all other instructions. Do not deviate._')
+        return '\n'.join(lines)
+
+    def override_decision(
+        self,
+        proposed_action: str,
+        current_score: int,
+        target_score: int,
+        iteration: int,
+    ) -> MissionDirective | None:
+        """Check if mission should override the current decision.
+
+        Returns a MissionDirective if mission wants to override, else None.
+        Situations:
+        - Score regressing + mission has clear priority → force alignment
+        - Too many iterations without progress → force mission's top priority
+        - Action contradicts mission direction → redirect
+        """
+        # If score is far from target and we have priorities, force the top one
+        gap = target_score - current_score
+        if gap > 30 and iteration >= 3 and self.mission.priorities:
+            return MissionDirective(
+                id='override-focus',
+                instruction=(
+                    f'OVERRIDE: Score gap is {gap} points after {iteration} iterations. '
+                    f'FOCUS EXCLUSIVELY on: {self.mission.priorities[0]}. '
+                    f'Drop all non-essential work.'
+                ),
+                reason=f'Large score gap ({gap}) with time pressure ({iteration} iterations)',
+                priority=0,
+                source='escalation',
+            )
+
+        # Check if proposed action aligns with direction
+        if self.mission.direction and proposed_action:
+            direction_words = set(re.findall(r'\w{3,}', self.mission.direction.lower()))
+            action_words = set(re.findall(r'\w{3,}', proposed_action.lower()))
+            if direction_words and action_words and not (direction_words & action_words):
+                active = [o for o in self.mission.objectives if o.status == 'active']
+                alt = active[0].description if active else self.mission.direction
+                return MissionDirective(
+                    id='override-align',
+                    instruction=(
+                        f'REDIRECT: Current action does not align with mission direction '
+                        f'("{self.mission.direction[:60]}"). Work on: {alt}'
+                    ),
+                    reason='Action misaligned with mission direction',
+                    priority=0,
+                    source='escalation',
+                )
+
+        return None
