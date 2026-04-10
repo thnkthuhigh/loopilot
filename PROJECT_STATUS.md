@@ -1,9 +1,9 @@
 # Copilot Operator — Tổng Quan Dự Án
 
-> **Phiên bản:** 2.6.1  
+> **Phiên bản:** 2.7.0  
 > **Giấy phép:** MIT  
 > **Python:** ≥ 3.10  
-> **Trạng thái:** Memory Hardening — BM25 retrieval, priority pressure, mission drift guard + all previous phases  
+> **Trạng thái:** Memory System v2 — semantic retrieval, priority system, mission authority + all previous phases  
 > **Cập nhật:** 2026-04-10  
 > **Remote:** synced with origin/main
 
@@ -130,13 +130,13 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 | 35 | `stop_controller.py` | 165 | **NEW** Stop controller: no-progress, diff dedup, score floor |
 | 36 | `ci_integration.py` | 330 | **NEW** CI integration: GitHub Actions trigger, result analysis |
 | 37 | `narrative.py` | 527 | Run narrative: prose summary, done explanation, live status, commitment summary |
-| 38 | `mission_memory.py` | 320 | Mission memory: project direction, objectives, lessons, **hard_constraints, drift guard** |
+| 38 | `mission_memory.py` | 450 | Mission memory: project direction, objectives, lessons, hard_constraints, drift guard, **MissionAuthority (veto, directives, override)** |
 | 39 | `memory_promotion.py` | 270 | Memory promotion: rules for promoting facts between layers |
 | 40 | `diff_scan.py` | 238 | Pre-validation diff security scan — 18 threat patterns, block+rollback |
-| 41 | `task_ledger.py` | 380 | Task ledger — structured per-run state, **PriorityPressure, urgency detection** |
-| 42 | `archive_retrieval.py` | 380 | Archive retrieval — **BM25 scoring + n-gram boost + LLM reranking** |
+| 41 | `task_ledger.py` | 560 | Task ledger — structured per-run state, PriorityPressure, **TaskPriority (P0–P3), PriorityQueue, escalation** |
+| 42 | `archive_retrieval.py` | 520 | Archive retrieval — **TF-IDF cosine + BM25 + n-gram + context boost + decay + LLM rerank** |
 
-**Tổng: 42 module, ~16.700 dòng code production**
+**Tổng: 42 module, ~17.500 dòng code production**
 
 ---
 
@@ -372,6 +372,39 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 - [x] `render_drift_correction()` — prompt injection block for realignment
 - [x] Drift correction injected FIRST in prompt (highest authority)
 
+### Phase 12 — Memory System v2 ✅ (NEW)
+
+**Semantic Retrieval** (`archive_retrieval.py` enhanced):
+- [x] TF-IDF cosine similarity — vector-based semantic scoring across documents
+- [x] Context-aware boosting — goal type similarity, file overlap, successful outcome bonus
+- [x] Relevance decay — older runs penalised (half-life = 10 runs)
+- [x] Multi-signal combined scoring: BM25 40% + semantic 35% + context 25% - decay
+- [x] `RelevanceSignal` breakdown for transparency (bm25, semantic, context, decay)
+- [x] Signal breakdown rendered in prompt for high-relevance hits
+
+**Priority System** (`task_ledger.py` enhanced):
+- [x] `TaskPriority` levels: P0-CRITICAL, P1-HIGH, P2-MEDIUM, P3-LOW
+- [x] `PrioritizedTask` with dependencies (`blocked_by`/`blocks`), status, escalation tracking
+- [x] `PriorityQueue` — ordered task execution, `next_actionable()` respects blockers
+- [x] `build_priority_queue()` — classifies tasks from plan (test→P1, docs→P3, mission boost)
+- [x] `escalate_priorities()` — automatic escalation rules:
+  • Score regression → blockers to P0
+  • Stuck → next task to P1
+  • Dependency cascade → tasks blocking 2+ others to P1
+  • Time pressure (4+ iterations) → P2 to P1
+- [x] Mission priority override integration
+- [x] Priority queue rendered in prompt with icons and escalation reasons
+
+**Mission Authority** (`mission_memory.py` enhanced):
+- [x] `MissionAuthority` class — wraps Mission, makes it binding not advisory
+- [x] `MissionDirective` — mandatory instructions (constraints, priorities, objectives)
+- [x] `evaluate_action()` — veto mechanism, checks constraints, returns alternative
+- [x] `MissionVeto` — blocks actions that violate hard constraints
+- [x] `override_decision()` — forces realignment when score gap large or action misaligned
+- [x] `force_priority()` — mission can override task priorities directly
+- [x] `render_authority_block()` — injected at VERY TOP of prompt (highest authority)
+- [x] Integrated veto, override, and authority into operator.py prompt building
+
 ### LLM Brain ✅
 
 - [x] OpenAI (GPT-4, GPT-4o, GPT-3.5)
@@ -386,7 +419,7 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 
 ## 6. Hệ thống test
 
-**Tổng: 641 test, 25 file, tất cả PASS** ✅ (lint clean)
+**Tổng: 696 test, 26 file, tất cả PASS** ✅ (lint clean)
 
 | File test | Số test | Nội dung |
 |-----------|--------:|----------|
@@ -414,7 +447,8 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 | `tests_python/test_config_wiring.py` | 15 | Config wiring: repo_map, snapshot, stop_controller, promotion thresholds |
 | `tests_python/test_diff_scan.py` | 36 | **NEW** Diff scan: threat patterns, dedup, skip rules, SAST prompt |
 | `tests_python/test_memory_model.py` | 29 | 5-tier memory: task ledger, archive retrieval, commitment summary |
-| `tests_python/test_memory_hardening.py` | 31 | **NEW** Memory hardening: BM25 scoring, n-gram boost, priority pressure, mission drift guard |
+| `tests_python/test_memory_hardening.py` | 31 | Memory hardening: BM25 scoring, n-gram boost, priority pressure, mission drift guard |
+| `tests_python/test_memory_v2.py` | 55 | **NEW** Memory v2: semantic retrieval, priority system, mission authority (veto, directives, override) |
 
 ### Chạy test
 
@@ -748,6 +782,7 @@ Nhưng **chưa từng chạy 2+ sessions song song trên repo thật**.
 - **v2.5.0 đã bổ sung narrative + mission memory + memory promotion**
 - **v2.6.0 đã bổ sung diff security scan + 5-tier memory model (task ledger, archive retrieval, commitment summary)**
 - **v2.6.1 đã bổ sung memory hardening: BM25 retrieval, priority pressure, mission drift guard**
+- **v2.7.0 đã bổ sung memory v2: semantic retrieval, priority system (P0–P3 + escalation), mission authority (veto + override)**
 - **Điểm cần làm tiếp là multi-session thực chiến và CI integration E2E**
 
 ---
