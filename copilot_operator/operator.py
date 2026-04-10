@@ -56,6 +56,7 @@ from .narrative import (
     write_done_explanation_file,
     write_narrative_file,
 )
+from .narrative_engine import NarrativeEngine
 from .planner import (
     build_milestone_baton,
     is_generic_baton,
@@ -711,6 +712,30 @@ class CopilotOperator:
             },
         )
 
+        # --- Narrative Engine: record decision trace for this iteration ---
+        try:
+            narr = getattr(self, '_narrative_engine', None)
+            if narr:
+                dx = self._diagnose(iteration)
+                ev = None
+                try:
+                    ev = evaluate_iteration(
+                        iteration=iteration,
+                        history=self.runtime.get('history', []) + [{'score': assessment.score}],
+                        validation_before=getattr(self, '_last_validation_results', None),
+                        validation_after=after_validation_results,
+                    )
+                except Exception:
+                    pass
+                narr.build_decision_trace(
+                    iteration=iteration,
+                    diagnosis=dx,
+                    eval_result=ev,
+                    decision=decision,
+                )
+        except Exception:
+            pass  # Narrative trace is best-effort
+
         record = {
             'iteration': iteration,
             'timestamp': self._now(),
@@ -988,6 +1013,9 @@ class CopilotOperator:
         # --- Intelligence Telemetry: track source effectiveness ---
         self._telemetry = TelemetryAggregator()
 
+        # --- Narrative Engine: structured agent voice ---
+        self._narrative_engine = NarrativeEngine()
+
         return goal_text, Decision(action='continue', reason='Initial execution', next_prompt=goal_text, reason_code='INITIAL_EXECUTION'), 1
 
     def _prepare_resume_run(self, goal: str | None) -> tuple[str, Decision, int]:
@@ -1079,6 +1107,9 @@ class CopilotOperator:
 
         # --- Intelligence Telemetry: track source effectiveness ---
         self._telemetry = TelemetryAggregator()
+
+        # --- Narrative Engine: structured agent voice ---
+        self._narrative_engine = NarrativeEngine()
 
         return goal_text, Decision(action='continue', reason=reason, next_prompt=next_prompt, reason_code=reason_code), len(history) + 1
 
@@ -1911,6 +1942,48 @@ class CopilotOperator:
                 logger.info('Narrative: %s', narrative.summary[:120])
             except Exception:
                 pass  # Narrative is best-effort
+
+            # --- Narrative Engine: render all 4 structured views ---
+            try:
+                narr = getattr(self, '_narrative_engine', None)
+                if narr and run_id:
+                    # Gather data sources for memory view
+                    _ne_mission = None
+                    try:
+                        _ne_mission = load_mission(self.config.workspace)
+                    except Exception:
+                        pass
+                    _ne_insights = getattr(self, '_project_insights', None)
+                    _ne_rules = getattr(self, '_learned_rules', None)
+                    _ne_adaptive = None
+                    if hasattr(self, '_adaptive_engine'):
+                        try:
+                            _ne_adaptive = self._adaptive_engine.get_state_summary()
+                        except Exception:
+                            pass
+                    _ne_telemetry = None
+                    if hasattr(self, '_telemetry'):
+                        try:
+                            _ne_telemetry = self._telemetry.build_report()
+                        except Exception:
+                            pass
+
+                    full_narrative = narr.render_all_views(
+                        self.runtime, result, self.config,
+                        mission=_ne_mission,
+                        insights=_ne_insights,
+                        rules=_ne_rules,
+                        adaptive_state=_ne_adaptive,
+                        telemetry_report=_ne_telemetry,
+                    )
+                    narrative_ui_path = self.config.workspace / '.copilot-operator' / 'logs' / run_id / 'narrative-ui.txt'
+                    narrative_ui_path.parent.mkdir(parents=True, exist_ok=True)
+                    narrative_ui_path.write_text(full_narrative, encoding='utf-8')
+                    result['narrativeUiPath'] = str(narrative_ui_path)
+                    result['_narrativeEngine'] = narr  # For CLI access
+                    logger.info('Narrative UI written: %s', narrative_ui_path)
+            except Exception:
+                pass  # Narrative UI is best-effort
 
             # --- Task Ledger: finalise with commitments ---
             try:

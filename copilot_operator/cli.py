@@ -793,6 +793,91 @@ def _read_json(path: object) -> dict:
         return {}
 
 
+def _explain(
+    config_path: str | None,
+    workspace_override: str | None,
+    run_id: str | None,
+    view: str | None,
+    as_json: bool,
+) -> int:
+    """Show the structured AI Narrative UI (4 views) for a run."""
+    config = load_config(config_path, workspace_override)
+
+    # Resolve run ID
+    if not run_id:
+        state = _read_json(config.state_file)
+        run_id = state.get('runId', '')
+    if not run_id:
+        print('[explain] No run found. Specify --run-id or run the operator first.', file=sys.stderr)
+        return 1
+
+    # Try reading pre-rendered narrative-ui.txt
+    ui_path = config.workspace / '.copilot-operator' / 'logs' / run_id / 'narrative-ui.txt'
+    if ui_path.exists() and not view:
+        text = ui_path.read_text(encoding='utf-8')
+        if as_json:
+            print(json.dumps({'runId': run_id, 'narrativeUi': text}, indent=2, ensure_ascii=False))
+        else:
+            print(text)
+        return 0
+
+    # Build views from state + summary
+    state = _read_json(config.state_file)
+    summary = _read_json(config.summary_file)
+    if not state:
+        print('[explain] No state data found.', file=sys.stderr)
+        return 1
+
+    from .narrative_engine import NarrativeEngine
+
+    engine = NarrativeEngine()
+
+    # Build requested view(s)
+    if view == 'live' or not view:
+        live_view = engine.build_live(state, config)
+        if view == 'live':
+            print(live_view.render())
+            return 0
+
+    if view == 'summary' or not view:
+        summary_view = engine.build_summary(state, summary or {}, config)
+        if view == 'summary':
+            print(summary_view.render())
+            return 0
+
+    if view == 'memory' or not view:
+        mission = None
+        try:
+            from .mission_memory import load_mission
+            mission = load_mission(config.workspace)
+        except Exception:
+            pass
+        insights = None
+        try:
+            from .brain import analyse_runs
+            insights = analyse_runs([])
+        except Exception:
+            pass
+        rules = None
+        try:
+            from .meta_learner import load_rules
+            rules = load_rules(config.workspace)
+        except Exception:
+            pass
+        mem_view = engine.build_memory(mission=mission, insights=insights, rules=rules)
+        if view == 'memory':
+            print(mem_view.render())
+            return 0
+
+    # Render all views
+    full = engine.render_all_views(state, summary or {}, config)
+    if as_json:
+        print(json.dumps({'runId': run_id, 'narrativeUi': full}, indent=2, ensure_ascii=False))
+    else:
+        print(full)
+    return 0
+
+
 def _issues(
     config_path: str | None,
     workspace_override: str | None,
@@ -1012,6 +1097,14 @@ def build_parser() -> argparse.ArgumentParser:
     narrative.add_argument('--run-id', help='Show narrative for a specific run ID.')
     narrative.add_argument('--json', action='store_true', dest='output_json', help='Output as JSON.')
     narrative.set_defaults(handler=lambda args: _narrative(args.config, args.workspace, args.run_id, args.output_json))
+
+    # --- Explain: structured AI Narrative UI (4 views) ---
+    explain = subparsers.add_parser('explain', help='Show the structured AI Narrative UI: Live, Decision Trace, Summary, Memory.')
+    _add_common_arguments(explain)
+    explain.add_argument('--run-id', help='Show narrative for a specific run ID.')
+    explain.add_argument('--view', choices=['live', 'summary', 'memory'], help='Show only a specific view.')
+    explain.add_argument('--json', action='store_true', dest='output_json', help='Output as JSON.')
+    explain.set_defaults(handler=lambda args: _explain(args.config, args.workspace, args.run_id, args.view, args.output_json))
 
     # --- Mission: view/update mission memory ---
     mission = subparsers.add_parser('mission', help='View or update the project mission memory.')
