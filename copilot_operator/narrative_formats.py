@@ -15,8 +15,10 @@ __all__ = [
     'format_live_block',
     'format_decision_block',
     'format_summary_block',
+    'format_summary_short',
     'format_memory_block',
     'format_iteration_log',
+    'format_live_stream_line',
 ]
 
 from typing import Any
@@ -124,6 +126,31 @@ def format_summary_block(summary: Any) -> str:
             lines.append(f'             📌 {c}')
 
     return '\n'.join(lines)
+
+
+def format_summary_short(summary: Any) -> str:
+    """Ultra-compact run summary — 5 lines max. For --short and auto-summary."""
+    outcome_icon = {'success': '✅', 'partial': '🟡', 'fail': '❌', 'blocked': '🔴'}.get(
+        getattr(summary, 'outcome', ''), '⚪'
+    )
+    lines = [
+        f'Goal:   {summary.goal}',
+        f'Result: {outcome_icon} {summary.outcome.upper()} — score {summary.score}/{summary.target_score} in {summary.iterations} iter',
+    ]
+    if summary.stop_reason:
+        lines.append(f'Reason: {summary.stop_reason}')
+    if summary.risks:
+        lines.append(f'Risk:   {summary.risks[0]}')
+    if summary.next_step:
+        lines.append(f'Next:   {summary.next_step}')
+    elif summary.commitments_owed:
+        lines.append(f'Next:   {summary.commitments_owed[0]}')
+    return '\n'.join(lines)
+
+
+def format_live_stream_line(iteration: int, phase: str, detail: str) -> str:
+    """Single-line live progress for --live streaming. Compact and timestamped."""
+    return f'[ITER {iteration}] {phase}: {detail}'
 
 
 def format_memory_block(memory: Any) -> str:

@@ -799,6 +799,7 @@ def _explain(
     run_id: str | None,
     view: str | None,
     as_json: bool,
+    short: bool = False,
 ) -> int:
     """Show the structured AI Narrative UI (4 views) for a run."""
     config = load_config(config_path, workspace_override)
@@ -812,6 +813,31 @@ def _explain(
         return 1
 
     run_log_dir = config.workspace / '.copilot-operator' / 'logs' / run_id
+
+    # --- Short mode: ultra-compact summary ---
+    if short:
+        state = _read_json(config.state_file)
+        summary = _read_json(config.summary_file)
+        if not state:
+            print('[explain] No state data found.', file=sys.stderr)
+            return 1
+        from .narrative_engine import NarrativeEngine
+        from .narrative_formats import format_summary_short
+        engine = NarrativeEngine()
+        summary_view = engine.build_summary(state, summary or {}, config)
+        short_text = format_summary_short(summary_view)
+        if as_json:
+            print(json.dumps({
+                'runId': run_id, 'goal': summary_view.goal,
+                'outcome': summary_view.outcome, 'score': summary_view.score,
+                'target_score': summary_view.target_score,
+                'iterations': summary_view.iterations,
+                'stop_reason': summary_view.stop_reason,
+                'risks': summary_view.risks, 'next_step': summary_view.next_step,
+            }, indent=2, ensure_ascii=False))
+        else:
+            print(short_text)
+        return 0
 
     # Try reading pre-rendered narrative-ui.txt (fast path for full view)
     ui_path = run_log_dir / 'narrative-ui.txt'
@@ -1142,7 +1168,8 @@ def build_parser() -> argparse.ArgumentParser:
     explain.add_argument('--run-id', help='Show narrative for a specific run ID.')
     explain.add_argument('--view', choices=['live', 'trace', 'summary', 'memory'], help='Show only a specific view.')
     explain.add_argument('--json', action='store_true', dest='output_json', help='Output as JSON.')
-    explain.set_defaults(handler=lambda args: _explain(args.config, args.workspace, args.run_id, args.view, args.output_json))
+    explain.add_argument('--short', action='store_true', help='Ultra-compact summary (5 lines).')
+    explain.set_defaults(handler=lambda args: _explain(args.config, args.workspace, args.run_id, args.view, args.output_json, args.short))
 
     # --- Mission: view/update mission memory ---
     mission = subparsers.add_parser('mission', help='View or update the project mission memory.')

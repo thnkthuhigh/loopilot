@@ -694,9 +694,17 @@ class CopilotOperator:
         except Exception as exc:
             logger.debug('Diff scan skipped: %s', exc)
 
+        # --- Live stream: running validations ---
+        self._live_print('  Running validations...')
+
         after_validation_results = run_validations(self.config.validation, self.config.workspace, phase='after_response')
         after_validation_path = self._artifact_path(iteration, 'validation.after.json')
         dump_json(after_validation_path, after_validation_results)
+
+        # --- Live stream: validation results ---
+        for vr in after_validation_results:
+            vr_icon = '\u2705' if vr.get('status') == 'pass' else '\u274c'
+            self._live_print(f'  {vr_icon} {vr.get("name", "?")}')
 
         decision = self._decide(assessment, after_validation_results, iteration)
         decision_path = self._artifact_path(iteration, 'decision.json')
@@ -733,6 +741,17 @@ class CopilotOperator:
                     eval_result=ev,
                     decision=decision,
                 )
+                # Live stream: decision trace
+                if self.live and trace:
+                    if trace.observation:
+                        self._live_print(f'  [OBSERVATION] {trace.observation}')
+                    if trace.decision:
+                        self._live_print(f'  [DECISION]    {trace.decision}')
+                    if trace.score_delta:
+                        d_icon = '\U0001f4c8' if trace.score_delta > 0 else '\U0001f4c9'
+                        self._live_print(f'  [SELF-EVAL]   {d_icon} score {trace.score_delta:+d}')
+                    if trace.correction:
+                        self._live_print(f'  [CORRECTION]  {trace.correction}')
                 # Write per-iteration structured log using narrative_formats
                 try:
                     from .narrative_formats import format_iteration_log
@@ -1995,6 +2014,15 @@ class CopilotOperator:
                     # Persist decision traces for past-run replay
                     traces_path = narrative_ui_path.parent / 'decision-traces.json'
                     dump_json(traces_path, narr.serialize_traces())
+
+                    # --- Auto-summary: always print short summary after run ---
+                    try:
+                        summary_view = narr.build_summary(self.runtime, result, self.config)
+                        from .narrative_formats import format_summary_short
+                        short = format_summary_short(summary_view)
+                        print(f'\n{short}', file=sys.stderr, flush=True)
+                    except Exception:
+                        pass  # Auto-summary is best-effort
             except Exception:
                 pass  # Narrative UI is best-effort
 
