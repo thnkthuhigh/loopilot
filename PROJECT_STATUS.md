@@ -1,9 +1,9 @@
 # Copilot Operator — Tổng Quan Dự Án
 
-> **Phiên bản:** 2.6.0  
+> **Phiên bản:** 2.6.1  
 > **Giấy phép:** MIT  
 > **Python:** ≥ 3.10  
-> **Trạng thái:** 5-Tier Memory Model — runtime guard, stop controller, worker contract, CI, narrative layer, mission memory, memory promotion, diff security scan, task ledger, archive retrieval  
+> **Trạng thái:** Memory Hardening — BM25 retrieval, priority pressure, mission drift guard + all previous phases  
 > **Cập nhật:** 2026-04-10  
 > **Remote:** synced with origin/main
 
@@ -130,13 +130,13 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 | 35 | `stop_controller.py` | 165 | **NEW** Stop controller: no-progress, diff dedup, score floor |
 | 36 | `ci_integration.py` | 330 | **NEW** CI integration: GitHub Actions trigger, result analysis |
 | 37 | `narrative.py` | 527 | Run narrative: prose summary, done explanation, live status, commitment summary |
-| 38 | `mission_memory.py` | 230 | Mission memory: project direction, objectives, lessons |
+| 38 | `mission_memory.py` | 320 | Mission memory: project direction, objectives, lessons, **hard_constraints, drift guard** |
 | 39 | `memory_promotion.py` | 270 | Memory promotion: rules for promoting facts between layers |
-| 40 | `diff_scan.py` | 238 | **NEW** Pre-validation diff security scan — 18 threat patterns, block+rollback |
-| 41 | `task_ledger.py` | 288 | **NEW** Task ledger — structured per-run state (goal, entries, commitments) |
-| 42 | `archive_retrieval.py` | 283 | **NEW** Archive retrieval — keyword search over past runs for relevant context |
+| 40 | `diff_scan.py` | 238 | Pre-validation diff security scan — 18 threat patterns, block+rollback |
+| 41 | `task_ledger.py` | 380 | Task ledger — structured per-run state, **PriorityPressure, urgency detection** |
+| 42 | `archive_retrieval.py` | 380 | Archive retrieval — **BM25 scoring + n-gram boost + LLM reranking** |
 
-**Tổng: 42 module, ~15.900 dòng code production**
+**Tổng: 42 module, ~16.700 dòng code production**
 
 ---
 
@@ -350,6 +350,28 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 - [x] Score regression detection
 - [x] Owed items extracted from remaining plan tasks
 
+### Phase 11b — Memory Hardening ✅ (NEW)
+
+**BM25 Retrieval** (`archive_retrieval.py` rewrite):
+- [x] BM25 scoring (TF-IDF variant, k1=1.2, b=0.75) replaces naive keyword counting
+- [x] N-gram boost — character 3-grams catch partial matches ('auth' → 'authentication'), capped at 0.3
+- [x] LLM reranking — optional semantic reranking of top candidates via LLM Brain
+- [x] Corpus-level IDF — document frequency across all past runs
+
+**Priority Pressure** (`task_ledger.py` enhanced):
+- [x] `PriorityPressure` dataclass: focus, blocking_now, critical_path, can_defer, urgency, reasoning
+- [x] `compute_priority_pressure()` — analyzes score trajectory, blockers, validation failures
+- [x] Urgency levels: critical (blockers/regression), high (failing validations), normal, low (target met)
+- [x] Deferrable detection — identifies docs/readme/style/cleanup tasks
+- [x] Rendered into prompt with urgency icons (🚨/⚠️/📌/📎)
+
+**Mission Drift Guard** (`mission_memory.py` enhanced):
+- [x] `hard_constraints` field on Mission — MUST NOT violate rules
+- [x] `check_mission_drift()` — hard constraint violation + objective alignment + priority alignment
+- [x] Severity levels: severe (hard constraint), mild (misalignment), none (aligned)
+- [x] `render_drift_correction()` — prompt injection block for realignment
+- [x] Drift correction injected FIRST in prompt (highest authority)
+
 ### LLM Brain ✅
 
 - [x] OpenAI (GPT-4, GPT-4o, GPT-3.5)
@@ -364,7 +386,7 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 
 ## 6. Hệ thống test
 
-**Tổng: 610 test, 24 file, tất cả PASS** ✅ (lint clean)
+**Tổng: 641 test, 25 file, tất cả PASS** ✅ (lint clean)
 
 | File test | Số test | Nội dung |
 |-----------|--------:|----------|
@@ -391,7 +413,8 @@ Goal → Decompose → Prompt Copilot → Validate (test/lint/build) → Score �
 | `tests_python/test_logging_vscode.py` | 20 | logging_config + vscode_chat |
 | `tests_python/test_config_wiring.py` | 15 | Config wiring: repo_map, snapshot, stop_controller, promotion thresholds |
 | `tests_python/test_diff_scan.py` | 36 | **NEW** Diff scan: threat patterns, dedup, skip rules, SAST prompt |
-| `tests_python/test_memory_model.py` | 29 | **NEW** 5-tier memory: task ledger, archive retrieval, commitment summary |
+| `tests_python/test_memory_model.py` | 29 | 5-tier memory: task ledger, archive retrieval, commitment summary |
+| `tests_python/test_memory_hardening.py` | 31 | **NEW** Memory hardening: BM25 scoring, n-gram boost, priority pressure, mission drift guard |
 
 ### Chạy test
 
@@ -724,6 +747,7 @@ Nhưng **chưa từng chạy 2+ sessions song song trên repo thật**.
 - Rất ấn tượng với tư cách dự án cá nhân
 - **v2.5.0 đã bổ sung narrative + mission memory + memory promotion**
 - **v2.6.0 đã bổ sung diff security scan + 5-tier memory model (task ledger, archive retrieval, commitment summary)**
+- **v2.6.1 đã bổ sung memory hardening: BM25 retrieval, priority pressure, mission drift guard**
 - **Điểm cần làm tiếp là multi-session thực chiến và CI integration E2E**
 
 ---
