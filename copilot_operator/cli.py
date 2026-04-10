@@ -702,6 +702,93 @@ def _fix_issue(
     return 0
 
 
+def _narrative(config_path: str | None, workspace_override: str | None, run_id: str | None, as_json: bool) -> int:
+    """Show the run narrative for the latest or specified run."""
+    config = load_config(config_path, workspace_override)
+
+    # Find the run to read
+    if run_id:
+        narrative_path = config.log_dir / run_id / 'narrative.md'
+    else:
+        # Find latest run that has a narrative
+        state = _read_json(config.state_file)
+        run_id = state.get('runId', '')
+        narrative_path = config.log_dir / run_id / 'narrative.md' if run_id else None
+
+    if narrative_path and narrative_path.exists():
+        text = narrative_path.read_text(encoding='utf-8')
+        if as_json:
+            print(json.dumps({'runId': run_id, 'narrative': text}, indent=2, ensure_ascii=False))
+        else:
+            print(text)
+    else:
+        # Build from state.json if no narrative file
+        state = _read_json(config.state_file)
+        summary = _read_json(config.summary_file)
+        if state and summary:
+            from .narrative import build_run_narrative
+            goal = state.get('goal', '')
+            narrative = build_run_narrative(goal, state, summary, config.target_score)
+            text = narrative.render()
+            if as_json:
+                print(json.dumps({'runId': state.get('runId', ''), 'narrative': text}, indent=2, ensure_ascii=False))
+            else:
+                print(text)
+        else:
+            print('[narrative] No run data found.', file=sys.stderr)
+            return 1
+    return 0
+
+
+def _mission(config_path: str | None, workspace_override: str | None, as_json: bool, set_direction: str | None, add_goal: str | None) -> int:
+    """View or update the mission memory."""
+    config = load_config(config_path, workspace_override)
+    from .mission_memory import load_mission, save_mission
+
+    mission = load_mission(config.workspace)
+
+    # Auto-detect project name if missing
+    if not mission.project_name:
+        mission.project_name = config.repo_profile.repo_name or config.workspace.name
+
+    # Apply updates
+    changed = False
+    if set_direction:
+        mission.direction = set_direction
+        changed = True
+    if add_goal:
+        if add_goal not in mission.active_goals:
+            mission.active_goals.append(add_goal)
+            changed = True
+
+    if changed:
+        save_mission(config.workspace, mission)
+        print('[mission] Updated.', file=sys.stderr)
+
+    if as_json:
+        from .mission_memory import _mission_to_dict
+        print(json.dumps(_mission_to_dict(mission), indent=2, ensure_ascii=False))
+    else:
+        rendered = mission.render()
+        if rendered:
+            print(rendered)
+        else:
+            print('[mission] No mission configured. Use --set-direction or --add-goal to get started.', file=sys.stderr)
+    return 0
+
+
+def _read_json(path: object) -> dict:
+    """Helper: read a JSON file or return empty dict."""
+    from pathlib import Path
+    p = Path(str(path))
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+
+
 def _issues(
     config_path: str | None,
     workspace_override: str | None,
@@ -914,6 +1001,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     version = subparsers.add_parser('version', help='Print the operator version.')
     version.set_defaults(handler=lambda args: _version())
+
+    # --- Narrative: show run narrative / done explanation ---
+    narrative = subparsers.add_parser('narrative', help='Show the run narrative for the latest or a specific run.')
+    _add_common_arguments(narrative)
+    narrative.add_argument('--run-id', help='Show narrative for a specific run ID.')
+    narrative.add_argument('--json', action='store_true', dest='output_json', help='Output as JSON.')
+    narrative.set_defaults(handler=lambda args: _narrative(args.config, args.workspace, args.run_id, args.output_json))
+
+    # --- Mission: view/update mission memory ---
+    mission = subparsers.add_parser('mission', help='View or update the project mission memory.')
+    _add_common_arguments(mission)
+    mission.add_argument('--json', action='store_true', dest='output_json', help='Output as JSON.')
+    mission.add_argument('--set-direction', help='Set the project direction (one-line).')
+    mission.add_argument('--add-goal', help='Add an active goal to the mission.')
+    mission.set_defaults(handler=lambda args: _mission(
+        args.config, args.workspace, args.output_json, args.set_direction, args.add_goal,
+    ))
 
     benchmark = subparsers.add_parser('benchmark', help='Run operator benchmark cases and score results.')
     _add_common_arguments(benchmark)

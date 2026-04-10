@@ -30,7 +30,19 @@ from .goal_decomposer import build_replan_prompt, classify_goal, decompose_goal,
 from .intention_guard import learn_guardrails_from_history, render_combined_guardrails
 from .llm_brain import LLMBrain, load_llm_config_from_dict, load_llm_config_from_env, render_brain_status
 from .logging_config import get_logger
+from .memory_promotion import run_promotion_cycle
 from .meta_learner import apply_meta_learning, load_rules, render_guardrails
+from .mission_memory import (
+    load_mission,
+    render_mission_for_prompt,
+    save_mission,
+    update_mission_from_run,
+)
+from .narrative import (
+    build_run_narrative,
+    write_done_explanation_file,
+    write_narrative_file,
+)
 from .planner import (
     build_milestone_baton,
     is_generic_baton,
@@ -936,6 +948,14 @@ class CopilotOperator:
             repo_name = self.config.repo_profile.repo_name or ''
             cross_repo_text = render_cross_repo_insights(self._shared_brain, current_repo=repo_name)
 
+        # Mission context: inject high-level project direction
+        mission_text = ''
+        try:
+            mission = load_mission(self.config.workspace)
+            mission_text = render_mission_for_prompt(mission)
+        except Exception:
+            pass
+
         # LLM Brain: enrich intelligence with real AI analysis when available
         llm_text = ''
         if self._llm_brain and self._llm_brain.is_ready and history and dx.risk_level in ('medium', 'high', 'critical'):
@@ -950,6 +970,10 @@ class CopilotOperator:
         worker_context = self._worker.build_context_summary()
         if worker_context:
             full_intelligence = f'{full_intelligence}\n\n{worker_context}' if full_intelligence else worker_context
+
+        # Mission context — project direction to prevent goal drift
+        if mission_text:
+            full_intelligence = f'{mission_text}\n\n{full_intelligence}' if full_intelligence else mission_text
 
         context = build_prompt_context(
             history,
@@ -1483,6 +1507,63 @@ class CopilotOperator:
             if (run_status == 'complete' and self.config.auto_create_pr
                     and self.config.github_token and not result.get('prBlocked')):
                 self._try_create_pr(result)
+
+            # --- Run Narrative: generate prose summary + done explanation ---
+            try:
+                goal_text = str(self.runtime.get('goal', ''))
+                narrative = build_run_narrative(
+                    goal_text, self.runtime, result,
+                    config_target_score=self.config.target_score,
+                )
+                result['narrative'] = narrative.summary
+                result['doneExplanation'] = narrative.done_explanation.render() if narrative.done_explanation else ''
+                # Write to disk
+                if run_id:
+                    write_narrative_file(self.config.workspace, run_id, narrative)
+                    if narrative.done_explanation:
+                        write_done_explanation_file(self.config.workspace, run_id, narrative.done_explanation)
+                logger.info('Narrative: %s', narrative.summary[:120])
+            except Exception:
+                pass  # Narrative is best-effort
+
+            # --- Mission Memory: update project direction ---
+            try:
+                mission = load_mission(self.config.workspace)
+                goal_text = str(self.runtime.get('goal', ''))
+                # Build lesson from narrative
+                lesson = ''
+                if run_status != 'complete' and result.get('reasonCode'):
+                    lesson = f'[{result["reasonCode"]}] {goal_text[:60]}'
+                elif run_status == 'complete':
+                    lesson = f'Completed: {goal_text[:60]}'
+                update_mission_from_run(mission, goal_text, result, lesson=lesson)
+                save_mission(self.config.workspace, mission)
+            except Exception:
+                pass  # Mission update is best-effort
+
+            # --- Memory Promotion: evaluate and apply promotions ---
+            try:
+                from dataclasses import asdict
+                rule_dicts = [asdict(r) for r in self._learned_rules] if self._learned_rules else []
+                brain_learnings: list[dict[str, Any]] = []  # Placeholder — actual brain learnings loaded in-memory
+                mission = load_mission(self.config.workspace)
+                shared_insights: list[dict[str, Any]] = []
+                if hasattr(self, '_shared_brain') and self._shared_brain:
+                    shared_insights = [
+                        {'category': i.category, 'detail': i.detail, 'confidence': i.confidence,
+                         'tags': list(i.tags), 'hit_count': i.hit_count}
+                        for i in getattr(self._shared_brain, 'insights', [])
+                    ]
+                promo_counts = run_promotion_cycle(
+                    history, result, rule_dicts,
+                    brain_learnings, mission.lessons_learned, shared_insights,
+                )
+                if any(v > 0 for v in promo_counts.values()):
+                    logger.info('Memory promotion: %s', promo_counts)
+                    save_mission(self.config.workspace, mission)
+                result['memoryPromotion'] = promo_counts
+            except Exception:
+                pass  # Promotion is best-effort
         except Exception:
             pass  # Post-run hooks are best-effort
 
