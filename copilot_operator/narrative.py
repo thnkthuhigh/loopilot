@@ -14,6 +14,7 @@ __all__ = [
     'LiveStatus',
     'DoneExplanation',
     'RunNarrative',
+    'build_commitment_summary',
     'build_live_status',
     'build_done_explanation',
     'build_run_narrative',
@@ -421,6 +422,83 @@ def build_run_narrative(
         validation_summary=validation_summary,
         done_explanation=done_explanation,
     )
+
+
+# ---------------------------------------------------------------------------
+# Commitment-based summary — structured "what matters" after a run
+# ---------------------------------------------------------------------------
+
+def build_commitment_summary(
+    goal: str,
+    runtime: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a commitment-aware summary of a completed run.
+
+    Unlike prose summaries, this returns structured data capturing:
+      - decided: what was decided during this run
+      - owed: what remains unfulfilled
+      - next_step: the immediate next action
+      - must_not_forget: critical context that must survive session resets
+
+    This is the mechanism described as "summary with commitments" — it
+    preserves obligations and context, not just events.
+    """
+    history = runtime.get('history', [])
+    status = result.get('status', '')
+    reason_code = result.get('reasonCode', '')
+
+    decided: list[str] = []
+    owed: list[str] = []
+    must_not_forget: list[str] = []
+
+    # Decisions: extract from history (score improvements, plan completions)
+    for h in history:
+        if h.get('score') and h.get('score', 0) > 0:
+            decided.append(f"Iteration {h.get('iteration')}: {h.get('summary', '')[:100]}")
+
+    # Owed: remaining tasks from plan
+    plan = runtime.get('plan', {})
+    for ms in plan.get('milestones', []) if isinstance(plan, dict) else []:
+        for task in ms.get('tasks', []):
+            if task.get('status') != 'done':
+                owed.append(task.get('title', ''))
+
+    # Must not forget: blockers + failing validations from last iteration
+    if history:
+        last = history[-1]
+        for b in last.get('blockers') or []:
+            item = b.get('item', '')
+            if item:
+                must_not_forget.append(f'Blocker: {item}')
+        for v in last.get('validation_after') or []:
+            if v.get('status') in ('fail', 'timeout'):
+                must_not_forget.append(f"Validation failing: {v.get('name', '?')}")
+
+    # Score regression is must-not-forget
+    if len(history) >= 2:
+        scores = [h.get('score', 0) for h in history if h.get('score') is not None]
+        if len(scores) >= 2 and scores[-1] < scores[-2]:
+            must_not_forget.append(f'Score regressed: {scores[-2]} → {scores[-1]}')
+
+    # Next step
+    if status == 'complete':
+        next_step = 'Task complete. Verify in production/CI.'
+    elif reason_code:
+        next_step = f'Resume needed: {reason_code}'
+    else:
+        next_step = 'Unknown — check run result.'
+
+    return {
+        'goal': goal,
+        'status': status,
+        'score': result.get('score'),
+        'iterations': len(history),
+        'decided': decided[-5:],  # cap
+        'owed': owed[:5],
+        'next_step': next_step,
+        'must_not_forget': must_not_forget[:10],
+    }
 
 
 # ---------------------------------------------------------------------------

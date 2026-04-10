@@ -44,6 +44,7 @@ from .mission_memory import (
     update_mission_from_run,
 )
 from .narrative import (
+    build_commitment_summary,
     build_run_narrative,
     write_done_explanation_file,
     write_narrative_file,
@@ -740,6 +741,15 @@ class CopilotOperator:
         self.runtime['lastPromptPath'] = str(prompt_path)
         self.runtime['updatedAt'] = self._now()
 
+        # --- Task Ledger: record iteration ---
+        try:
+            if getattr(self, '_task_ledger', None):
+                from .task_ledger import save_ledger, update_ledger_from_iteration
+                update_ledger_from_iteration(self._task_ledger, iteration, record)
+                save_ledger(self.config.workspace, self._task_ledger)
+        except Exception:
+            pass  # Ledger update is best-effort
+
         # Record iteration in worker for context continuity
         self._worker.record_iteration(
             iteration=iteration,
@@ -919,6 +929,37 @@ class CopilotOperator:
         cleanup_result = cleanup_run_logs(self.config.log_dir, self.config.log_retention_runs, current_run_id=run_id)
         self.runtime['logCleanup'] = cleanup_result
         self._write_runtime()
+
+        # --- Task Ledger: initialise structured per-run state ---
+        try:
+            from .task_ledger import TaskLedger, save_ledger
+            self._task_ledger = TaskLedger(
+                run_id=run_id,
+                goal=goal_text,
+                plan_milestones=[
+                    ms.get('title', '')
+                    for ms in initial_plan.get('milestones', [])
+                ] if isinstance(initial_plan, dict) else [],
+            )
+            save_ledger(self.config.workspace, self._task_ledger)
+        except Exception:
+            self._task_ledger = None  # type: ignore[assignment]
+
+        # --- Archive Retrieval: fetch relevant past context ---
+        try:
+            from .archive_retrieval import query_archive, render_archive_hits_for_prompt
+            hits = query_archive(
+                self.config.workspace, goal_text,
+                max_results=3, exclude_run_id=run_id,
+            )
+            if hits:
+                self._archive_context = render_archive_hits_for_prompt(hits)
+                logger.info('Archive: found %d relevant past runs', len(hits))
+            else:
+                self._archive_context = ''
+        except Exception:
+            self._archive_context = ''
+
         return goal_text, Decision(action='continue', reason='Initial execution', next_prompt=goal_text, reason_code='INITIAL_EXECUTION'), 1
 
     def _prepare_resume_run(self, goal: str | None) -> tuple[str, Decision, int]:
@@ -968,6 +1009,29 @@ class CopilotOperator:
         }
         self.runtime = runtime
         self._write_runtime()
+
+        # --- Task Ledger: load existing or create ---
+        try:
+            from .task_ledger import load_ledger
+            run_id = str(runtime.get('runId', ''))
+            self._task_ledger = load_ledger(self.config.workspace, run_id)
+            if not self._task_ledger.goal:
+                self._task_ledger.goal = goal_text
+        except Exception:
+            self._task_ledger = None  # type: ignore[assignment]
+
+        # --- Archive Retrieval ---
+        try:
+            from .archive_retrieval import query_archive, render_archive_hits_for_prompt
+            run_id = str(runtime.get('runId', ''))
+            hits = query_archive(
+                self.config.workspace, goal_text,
+                max_results=3, exclude_run_id=run_id,
+            )
+            self._archive_context = render_archive_hits_for_prompt(hits) if hits else ''
+        except Exception:
+            self._archive_context = ''
+
         return goal_text, Decision(action='continue', reason=reason, next_prompt=next_prompt, reason_code=reason_code), len(history) + 1
 
     def _build_prompt(self, goal: str, decision: Decision, validation_results: list[dict[str, Any]]) -> str:
@@ -1024,6 +1088,21 @@ class CopilotOperator:
         # Mission context — project direction to prevent goal drift
         if mission_text:
             full_intelligence = f'{mission_text}\n\n{full_intelligence}' if full_intelligence else mission_text
+
+        # Task Ledger — structured per-run state (todo/doing/done/blocked)
+        try:
+            if getattr(self, '_task_ledger', None):
+                from .task_ledger import render_ledger_for_prompt
+                ledger_text = render_ledger_for_prompt(self._task_ledger)
+                if ledger_text:
+                    full_intelligence = f'{full_intelligence}\n\n{ledger_text}' if full_intelligence else ledger_text
+        except Exception:
+            pass
+
+        # Archive — relevant past runs (retrieval, not replay)
+        archive_text = getattr(self, '_archive_context', '')
+        if archive_text:
+            full_intelligence = f'{full_intelligence}\n\n{archive_text}' if full_intelligence else archive_text
 
         context = build_prompt_context(
             history,
@@ -1580,6 +1659,24 @@ class CopilotOperator:
                 logger.info('Narrative: %s', narrative.summary[:120])
             except Exception:
                 pass  # Narrative is best-effort
+
+            # --- Task Ledger: finalise with commitments ---
+            try:
+                if getattr(self, '_task_ledger', None):
+                    from .task_ledger import build_commitments, save_ledger
+                    goal_text = str(self.runtime.get('goal', ''))
+                    self._task_ledger.outcome = run_status
+                    self._task_ledger.stop_reason = result.get('reasonCode', '')
+                    self._task_ledger.commitments = build_commitments(self._task_ledger, result)
+
+                    # Also build commitment summary for the result dict
+                    commitment_summary = build_commitment_summary(goal_text, self.runtime, result)
+                    result['commitmentSummary'] = commitment_summary
+
+                    save_ledger(self.config.workspace, self._task_ledger)
+                    logger.info('Task ledger saved with %d entries', len(self._task_ledger.entries))
+            except Exception:
+                pass  # Ledger is best-effort
 
             # --- Mission Memory: update project direction ---
             try:
