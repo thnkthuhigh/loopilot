@@ -77,16 +77,89 @@ def _get_at_path(state: Any, path: list[Any]) -> Any:
     return target
 
 
+def _load_event_log_session(lines: list[str]) -> dict[str, Any]:
+    """Parse the new event-log JSONL format (Copilot Chat ≥ 0.42) into a canonical session dict."""
+    user_messages: list[dict] = []
+    assistant_parts: list[str] = []
+    has_turn_end = False
+    in_turn = False
+
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ev = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        ev_type = ev.get('type', '')
+        data = ev.get('data') or {}
+
+        if ev_type == 'user.message':
+            # New user message — reset assistant parts for this request
+            user_messages.append(data)
+            assistant_parts = []
+            has_turn_end = False
+            in_turn = False
+
+        elif ev_type == 'assistant.turn_start':
+            in_turn = True
+
+        elif ev_type == 'assistant.turn_end':
+            in_turn = False
+            has_turn_end = True
+
+        elif ev_type == 'assistant.message':
+            content = data.get('content') or ''
+            tool_requests = data.get('toolRequests') or []
+            # Only collect text content if no tool requests (final reply text)
+            if content and not tool_requests:
+                assistant_parts.append(content.strip())
+
+    if not user_messages:
+        raise ValueError('No user.message events found in event-log session.')
+
+    # Build a canonical request dict that the rest of the code understands
+    response_text = '\n\n'.join(p for p in assistant_parts if p)
+    request: dict[str, Any] = {
+        'message': user_messages[-1],
+        'response': [{'value': response_text}] if response_text else [],
+        'result': {'metadata': {}} if has_turn_end and not in_turn else None,
+        'modelState': {'completedAt': 'done'} if has_turn_end and not in_turn else {},
+    }
+    return {
+        'requests': [request],
+        'pendingRequests': [],
+        '_eventLogFormat': True,
+    }
+
+
 def load_chat_session(path: str | Path) -> dict[str, Any]:
     session_path = Path(path)
     if session_path.suffix == '.json':
         return json.loads(session_path.read_text(encoding='utf-8'))
 
+    lines = session_path.read_text(encoding='utf-8').splitlines()
+    # Detect format: new event-log format uses 'type' key; old format uses 'kind'
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            first_event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if 'type' in first_event:
+            return _load_event_log_session(lines)
+        break  # Old format detected, fall through to original parser
+
     state: dict[str, Any] | None = None
-    for raw_line in session_path.read_text(encoding='utf-8').splitlines():
+    for raw_line in lines:
         if not raw_line.strip():
             continue
         event = json.loads(raw_line)
+        if 'kind' not in event:
+            continue  # Skip events without a kind field (unknown format)
         kind = int(event['kind'])
         if kind == 0:
             state = copy.deepcopy(event['v'])

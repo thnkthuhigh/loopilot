@@ -43,28 +43,30 @@ def run_validations(validations: list[ValidationCommand], workspace: Path, phase
                 cwd=str(workspace),
                 shell=True,
                 capture_output=True,
-                text=True,
                 timeout=item.timeout_seconds,
                 check=False,
             )
-            summary = completed.stdout.strip() or completed.stderr.strip() or 'No output captured.'
+            stdout = (completed.stdout or b'').decode('utf-8', errors='replace')
+            stderr = (completed.stderr or b'').decode('utf-8', errors='replace')
+            completed_returncode = completed.returncode
+            summary = stdout.strip() or stderr.strip() or 'No output captured.'
             results.append(
                 {
                     'name': item.name,
                     'command': item.command,
-                    'status': 'pass' if completed.returncode == 0 else 'fail',
+                    'status': 'pass' if completed_returncode == 0 else 'fail',
                     'required': item.required,
                     'phase': phase,
                     'source': item.source,
                     'summary': summary.splitlines()[0][:300],
-                    'returncode': completed.returncode,
-                    'stdout': completed.stdout,
-                    'stderr': completed.stderr,
+                    'returncode': completed_returncode,
+                    'stdout': stdout,
+                    'stderr': stderr,
                 }
             )
         except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout or ''
-            stderr = exc.stderr or ''
+            stdout = (exc.stdout or b'').decode('utf-8', errors='replace') if isinstance(exc.stdout, bytes) else (exc.stdout or '')
+            stderr = (exc.stderr or b'').decode('utf-8', errors='replace') if isinstance(exc.stderr, bytes) else (exc.stderr or '')
             summary = stderr.strip() or stdout.strip() or 'Validation command timed out.'
             results.append(
                 {
