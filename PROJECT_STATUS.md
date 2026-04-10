@@ -3,7 +3,7 @@
 > **Phiên bản:** 3.0.0  
 > **Giấy phép:** MIT  
 > **Python:** ≥ 3.10  
-> **Trạng thái:** AI Narrative UI — 4-view structured agent voice + all previous phases  
+> **Trạng thái:** Integration & Loop Closure — all feedback loops connected + all previous phases  
 > **Cập nhật:** 2026-04-10  
 > **Remote:** synced with origin/main
 
@@ -16,7 +16,7 @@
 3. [Danh sách module (50 file, ~21.300 dòng)](#3-danh-sách-module)
 4. [CLI — 26 lệnh](#4-cli--26-lệnh)
 5. [Tính năng đã hoàn thành](#5-tính-năng-đã-hoàn-thành)
-6. [Hệ thống test (819 test, 29 file)](#6-hệ-thống-test)
+6. [Hệ thống test (834 test, 30 file)](#6-hệ-thống-test)
 7. [Cấu hình (copilot-operator.yml)](#7-cấu-hình)
 8. [LLM Brain — 5 provider](#8-llm-brain--5-provider)
 9. [Tài liệu hiện có](#9-tài-liệu-hiện-có)
@@ -715,7 +715,8 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 | Phase 12 | Memory System v2 | ✅ Hoàn thành |
 | Phase 13 | Intelligence Engine | ✅ Hoàn thành |
 | Phase 14 | Intelligence Actuation | ✅ Hoàn thành |
-| Phase 15 | AI Narrative UI | ✅ **Hoàn thành (mới)** |
+| Phase 15 | AI Narrative UI | ✅ Hoàn thành |
+| Phase 16 | Integration & Loop Closure | ✅ **Hoàn thành (mới)** |
 
 ### Phase 11 — Chi tiết (Security + 5-Tier Memory)
 
@@ -763,6 +764,18 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 | 🟠 P2 | `benchmark_learner.py` — Extract rules from failed benchmark cases | ✅ Done + 10 tests |
 | 🟡 P3 | `intelligence_telemetry.py` — Track injection effectiveness, save/load, reports | ✅ Done + 15 tests |
 | 🟢 P4 | `operator.py` — Integrated actuation in _decide(), telemetry in _build_prompt + _post_run_hooks | ✅ Done |
+
+### Phase 16 — Chi tiết (Integration & Loop Closure)
+
+| Ưu tiên | Module | Trạng thái |
+|---------|--------|------------|
+| 🔴 P1 | `benchmark.py` → `benchmark_learner.py` — Auto-extract learning rules after benchmark failures | ✅ Done |
+| 🟠 P2 | `narrative_engine.py` — `serialize_traces()` / `load_traces()` + JSON persistence in operator | ✅ Done |
+| 🟡 P3 | `bootstrap.py` — `format_operator_status()` includes `LiveNarrative` block from NarrativeEngine | ✅ Done |
+| 🟢 P4 | `operator.py` — Per-iteration `narrative-log.txt` using `format_iteration_log()` | ✅ Done |
+| 🔵 P5 | `cli.py` — Enhanced `explain` command: `--view trace`, past-run trace loading, mission+rules in all views | ✅ Done |
+| ⚪ P6 | `__init__.py` + `pyproject.toml` — Version sync to 3.0.0, 5 new exports | ✅ Done |
+| ⚪ P7 | Lint cleanup — Fixed unused imports/variables across 4 test files | ✅ Done + 15 tests |
 
 ### Trong dự định (chưa code)
 
@@ -907,6 +920,8 @@ Nhưng **chưa từng chạy 2+ sessions song song trên repo thật**.
 - **v2.7.0 đã bổ sung memory v2: semantic retrieval, priority system (P0–P3 + escalation), mission authority (veto + override)**
 - **v2.8.0 đã bổ sung intelligence engine: context budget, adaptive strategy, self-evaluation loop**
 - **v2.9.0 đã bổ sung intelligence actuation: hint actuator, benchmark learner, telemetry**
+- **v3.0.0 đã bổ sung AI Narrative UI: 4-view structured agent voice + explain CLI**
+- **v3.0.0 đã bổ sung Integration & Loop Closure: benchmark→learner, trace persistence, watch→LiveNarrative, version sync**
 - **Điểm cần làm tiếp là multi-session thực chiến và CI integration E2E**
 
 ---
