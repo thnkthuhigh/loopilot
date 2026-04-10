@@ -25,6 +25,14 @@ class WorkerStatus(str, Enum):
     PAUSED = 'paused'
     FAILED = 'failed'
     DONE = 'done'
+    RECYCLED = 'recycled'  # Worker was recycled due to degradation
+
+
+class HealthSignal(str, Enum):
+    """Worker health signal — reported to scheduler for orchestration decisions."""
+    HEALTHY = 'healthy'       # Normal operation
+    DEGRADED = 'degraded'     # Experiencing issues but can continue
+    DEAD = 'dead'             # Unrecoverable — needs recycle
 
 
 @dataclass(slots=True)
@@ -85,6 +93,81 @@ class WorkerHealth:
         self.last_error = error
         self.last_activity = time.time()
 
+    @property
+    def signal(self) -> HealthSignal:
+        """Return the current health signal for orchestration."""
+        if self.consecutive_errors >= 3:
+            return HealthSignal.DEAD
+        if self.consecutive_errors >= 1 or (self.score_trend == 'declining' and len(self.score_history) >= 3):
+            return HealthSignal.DEGRADED
+        return HealthSignal.HEALTHY
+
+
+# ---------------------------------------------------------------------------
+# Worker Contract — formalized task interface
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class TaskInput:
+    """Standardized task input for a worker."""
+    goal: str = ''
+    goal_profile: str = 'default'
+    target_score: int = 85
+    max_iterations: int = 6
+    context: str = ''           # Injected context from prior sessions
+    attached_files: list[str] = field(default_factory=list)
+    constraints: list[str] = field(default_factory=list)  # e.g. ["do not modify test files"]
+
+
+@dataclass(slots=True)
+class RequiredArtifacts:
+    """Artifacts that MUST be produced by each iteration."""
+    prompt_file: bool = True       # Prompt sent to Copilot
+    response_file: bool = True     # Response received
+    decision_file: bool = True     # Decision log
+    validation_result: bool = True  # Validation output
+    diff_summary: bool = False     # Git diff summary (optional)
+
+    def check(self, produced: dict[str, bool]) -> list[str]:
+        """Return list of missing required artifacts."""
+        missing: list[str] = []
+        if self.prompt_file and not produced.get('prompt_file'):
+            missing.append('prompt_file')
+        if self.response_file and not produced.get('response_file'):
+            missing.append('response_file')
+        if self.decision_file and not produced.get('decision_file'):
+            missing.append('decision_file')
+        if self.validation_result and not produced.get('validation_result'):
+            missing.append('validation_result')
+        if self.diff_summary and not produced.get('diff_summary'):
+            missing.append('diff_summary')
+        return missing
+
+
+@dataclass(slots=True)
+class RecyclePolicy:
+    """Policy for when to kill and restart a worker."""
+    max_consecutive_errors: int = 3     # Recycle after N consecutive errors
+    max_score_floor_iterations: int = 4  # Recycle if below score floor for N iters
+    score_floor: int = 20               # Score threshold for floor detection
+    max_idle_seconds: int = 300         # Recycle if idle for too long
+
+    def should_recycle(self, health: WorkerHealth) -> tuple[bool, str]:
+        """Check if the worker should be recycled."""
+        if health.signal == HealthSignal.DEAD:
+            return True, f'Worker dead: {health.consecutive_errors} consecutive errors'
+        # Score floor check
+        if len(health.score_history) >= self.max_score_floor_iterations:
+            recent = health.score_history[-self.max_score_floor_iterations:]
+            if all(s < self.score_floor for s in recent):
+                return True, f'Score below {self.score_floor} for {self.max_score_floor_iterations} iterations'
+        # Idle check
+        if health.last_activity > 0:
+            idle = time.time() - health.last_activity
+            if idle > self.max_idle_seconds:
+                return True, f'Worker idle for {idle:.0f}s (limit: {self.max_idle_seconds}s)'
+        return False, ''
+
 
 @dataclass(slots=True)
 class Worker:
@@ -93,6 +176,13 @@ class Worker:
     The worker does NOT hold a live session open (VS Code CLI doesn't support it).
     Instead, it maintains a **context window** — a condensed summary of all prior
     iterations — that gets injected into each new VS Code chat session.
+
+    Worker Contract:
+      - Task input: receives TaskInput with goal, constraints, context
+      - Minimum state: health, context_window, all_changed_files
+      - Health signal: HEALTHY / DEGRADED / DEAD
+      - Recycle policy: configurable thresholds for kill+restart
+      - Required artifacts: prompt, response, decision, validation per iteration
     """
     worker_id: str = ''
     role: str = 'coder'         # coder, reviewer, tester, fixer, docs
@@ -106,6 +196,10 @@ class Worker:
 
     # Health
     health: WorkerHealth = field(default_factory=WorkerHealth)
+
+    # Contract components
+    recycle_policy: RecyclePolicy = field(default_factory=RecyclePolicy)
+    required_artifacts: RequiredArtifacts = field(default_factory=RequiredArtifacts)
 
     # Tracking
     current_iteration: int = 0
@@ -201,7 +295,15 @@ class Worker:
             recent = self.health.score_history[-3:]
             if all(s < 30 for s in recent):
                 return True, 'Score consistently below 30 — likely stuck'
+        # Check recycle policy
+        should_recycle, recycle_reason = self.recycle_policy.should_recycle(self.health)
+        if should_recycle:
+            return True, f'Recycle triggered: {recycle_reason}'
         return False, ''
+
+    def check_artifacts(self, produced: dict[str, bool]) -> list[str]:
+        """Validate that required artifacts were produced. Returns missing artifact names."""
+        return self.required_artifacts.check(produced)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -219,6 +321,7 @@ class Worker:
                 'avgScore': round(self.health.avg_score, 1),
                 'scoreTrend': self.health.score_trend,
                 'isHealthy': self.health.is_healthy,
+                'signal': self.health.signal.value,
             },
             'contextRecords': len(self.context_window),
             'allChangedFiles': self.all_changed_files,

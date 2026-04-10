@@ -56,6 +56,15 @@ from .repo_ops import (
     is_git_repo,
     pre_run_safety_check,
 )
+from .runtime_guard import (
+    IterationCheckpoint,
+    acquire_lock,
+    clear_checkpoint,
+    detect_window_conflict,
+    refresh_lock,
+    release_lock,
+    save_checkpoint,
+)
 from .scheduler import (
     create_scheduler_plan,
     get_next_runnable_slot,
@@ -74,6 +83,7 @@ from .snapshot import (
     snapshot_summary,
     take_snapshot,
 )
+from .stop_controller import StopController, build_stop_controller_config
 from .terminal import bold, cyan, dim, score_color, status_badge
 from .validation import dump_json, run_validations
 from .vscode_chat import (
@@ -163,6 +173,17 @@ class CopilotOperator:
 
         # Worker runtime — maintains context across iterations
         self._worker = Worker(role='coder', max_iterations=config.max_iterations)
+        self._lock_run_id: str = ''
+        self._stop_ctrl = StopController(build_stop_controller_config(config))
+
+    def _cleanup_guard(self) -> None:
+        """Release lock + clear checkpoint on run exit."""
+        if getattr(self, '_lock_run_id', ''):
+            release_lock(self.config.workspace, self._lock_run_id)
+        try:
+            clear_checkpoint(self.config.workspace)
+        except (OSError, TypeError, AttributeError):
+            pass  # Workspace may be a mock in tests
 
     def _live_print(self, msg: str) -> None:
         """Print a live progress line to stderr (only when live=True)."""
@@ -175,6 +196,32 @@ class CopilotOperator:
         chat_dir.mkdir(parents=True, exist_ok=True)
 
         goal_text, decision, iteration_start = self._prepare_run(goal, resume)
+
+        # --- Runtime guard: acquire workspace lock ---
+        run_id = str(self.runtime.get('runId', ''))
+        if not self.dry_run:
+            try:
+                lock = acquire_lock(self.config.workspace, run_id)
+                if lock is None:
+                    raise RuntimeError(
+                        'Another operator process is already running on this workspace. '
+                        'Use --force to override or wait for the other process to finish.'
+                    )
+                self._lock_run_id = run_id
+            except (OSError, TypeError):
+                self._lock_run_id = ''
+
+            # Same-window conflict detection
+            try:
+                conflict = detect_window_conflict(self.config.workspace)
+                if conflict:
+                    logger.warning('Window conflict: %s', conflict)
+                    self._live_print(f'⚠ {conflict}')
+            except (OSError, TypeError):
+                pass
+        else:
+            self._lock_run_id = ''
+
         logger.info('Starting run: goal=%r dry_run=%s iterations=%d-%d',
                      goal_text[:80], self.dry_run, iteration_start, self.config.max_iterations)
 
@@ -191,8 +238,30 @@ class CopilotOperator:
             _run_start_time = time.monotonic()
         except (TypeError, AttributeError):
             _run_start_time = 0
+        # Track previous diff hash for no-progress detection
+        _prev_diff_hash: str = ''
 
         for iteration in range(iteration_start, self.config.max_iterations + 1):
+            # --- Refresh lock + save checkpoint ---
+            if getattr(self, '_lock_run_id', ''):
+                refresh_lock(self.config.workspace, self._lock_run_id)
+            try:
+                save_checkpoint(self.config.workspace, IterationCheckpoint(
+                    run_id=run_id,
+                    iteration=iteration,
+                    goal=goal_text,
+                    goal_profile=self.config.goal_profile,
+                    status='running',
+                    last_decision_action=decision.action,
+                    last_decision_reason_code=decision.reason_code,
+                    last_decision_next_prompt=decision.next_prompt[:500],
+                    score=self.runtime.get('history', [{}])[-1].get('score') if self.runtime.get('history') else None,
+                    timestamp=time.time(),
+                    all_changed_files=self.runtime.get('allChangedFiles', []),
+                ))
+            except (OSError, TypeError):
+                pass  # Best-effort checkpoint
+
             # --- Cost ceiling check ---
             _raw_cost = getattr(self.config, 'max_llm_cost_usd', None)
             _cost_limit = _raw_cost if isinstance(_raw_cost, (int, float)) else 0.0
@@ -265,6 +334,7 @@ class CopilotOperator:
                 self.runtime['finalReason'] = f'Interrupted at iteration {iteration}'
                 self.runtime['finalReasonCode'] = 'INTERRUPTED'
                 self._write_runtime()
+                self._cleanup_guard()
                 raise
             except Exception as exc:
                 retryable = _is_retryable(exc)
@@ -299,6 +369,7 @@ class CopilotOperator:
                         'summaryFile': str(self.config.summary_file),
                     }
                     dump_json(self.config.summary_file, result)
+                    self._cleanup_guard()
                     return result
 
                 # Retryable error — apply backoff
@@ -325,6 +396,7 @@ class CopilotOperator:
                         'summaryFile': str(self.config.summary_file),
                     }
                     dump_json(self.config.summary_file, result)
+                    self._cleanup_guard()
                     return result
 
                 # Backoff delay: 2, 4, 8, ... capped at 30s
@@ -626,6 +698,35 @@ class CopilotOperator:
             self.runtime['allChangedFiles'] = sorted(all_changed)
         except Exception:
             pass
+
+        # --- Stop controller: record diff + evaluate ---
+        try:
+            diff_for_stop = get_diff_summary(self.config.workspace)
+            if hasattr(self, '_stop_ctrl'):
+                self._stop_ctrl.record_diff(diff_for_stop or '')
+        except Exception:
+            pass
+        if hasattr(self, '_stop_ctrl'):
+            stop_signal = self._stop_ctrl.evaluate(iteration, self.runtime.get('history', []))
+        else:
+            from .stop_controller import StopSignal
+            stop_signal = StopSignal()
+        if stop_signal.should_stop and decision.action != 'stop':
+            logger.warning('Stop controller triggered: %s (hard=%s)', stop_signal.reason_code, stop_signal.is_hard_stop)
+            self._live_print(f'⚠ Stop controller: {stop_signal.reason}')
+            if stop_signal.is_hard_stop:
+                decision = Decision(
+                    action='stop',
+                    reason=f'[HARD STOP] {stop_signal.reason}',
+                    reason_code=stop_signal.reason_code,
+                )
+            else:
+                decision = Decision(
+                    action='stop',
+                    reason=f'[SOFT STOP → escalate] {stop_signal.reason}',
+                    next_prompt=decision.next_prompt,
+                    reason_code=stop_signal.reason_code,
+                )
 
         self.runtime['pendingDecision'] = {
             'action': decision.action,
@@ -1384,6 +1485,9 @@ class CopilotOperator:
                 self._try_create_pr(result)
         except Exception:
             pass  # Post-run hooks are best-effort
+
+        # Always release guard resources
+        self._cleanup_guard()
 
     def _try_create_pr(self, result: dict[str, Any]) -> None:
         """Attempt to create a draft PR after a successful run."""
