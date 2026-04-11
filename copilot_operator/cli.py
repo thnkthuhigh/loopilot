@@ -223,6 +223,8 @@ def _run(
     operator = CopilotOperator(config, dry_run=dry_run, live=live)
     goal_value = None if resume and not (goal or goal_file) else _read_goal(config_path, workspace_override, goal, goal_file)
     result = operator.run(goal_value, resume=resume)
+    # Remove non-serializable internal objects before printing
+    result.pop('_narrativeEngine', None)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

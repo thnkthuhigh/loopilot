@@ -517,6 +517,7 @@ class CopilotOperator:
                     attachment_paths.append(abs_path)
 
         send_chat_prompt(self.config, prompt, add_files=attachment_paths)
+        self._live_print('  Waiting for Copilot response...')
         try:
             session_path = wait_for_session_file(chat_dir, baseline, self.config.session_timeout_seconds, self.config.poll_interval_seconds)
         except VSCodeChatRetryableError:
@@ -550,6 +551,7 @@ class CopilotOperator:
             self.runtime['plan'] = merge_plan(self.runtime.get('plan'), plan_update, goal_text, terminal_status=assessment.status)
             # Continue to validation below — assessment.score will be 0 so validation decides
         else:
+            self._live_print(f'  Session detected: {session_path.name}')
             session = wait_for_completed_session(session_path, self.config)
             request = get_latest_request(session)
             response_text = extract_response_text(request)

@@ -123,11 +123,16 @@ def send_chat_prompt(
     add_files: Iterable[Path] | None = None,
     maximize: bool = False,
 ) -> None:
-    # NOTE: We do NOT call focus_workspace() here.
-    # When multiple VS Code windows are open, `--reuse-window` targets whichever
-    # window is currently focused — not necessarily the correct workspace.
-    # Fix: focus the target workspace first, then send the chat command.
+    # Focus the target workspace first so `--reuse-window` targets the
+    # correct VS Code window.  A short settle delay avoids a race where
+    # `code chat` fires before the focus switch completes.
     focus_workspace(config.workspace, config)
+    settle = getattr(config, 'focus_settle_seconds', 2.0)
+    try:
+        if float(settle) > 0:
+            time.sleep(float(settle))
+    except (TypeError, ValueError):
+        time.sleep(2.0)
 
     # Windows command-line escaping can inflate prompt length 3-4x.
     # Write prompt to a file in the workspace and use --add-file to pass it.
@@ -188,12 +193,18 @@ def wait_for_completed_session(session_path: Path, config: OperatorConfig) -> di
 
     Tracks both mtime and file size to detect activity, which avoids false
     'quiet' detection on Windows where mtime resolution can be coarse.
+    Returns early if the file becomes stale (no changes for an extended period)
+    even when the session isn't formally completed — this handles cases where
+    Copilot stops writing events mid-turn.
     """
     deadline = time.time() + config.session_timeout_seconds
     quiet_rounds = 0
     last_mtime = 0.0
     last_size = 0
     latest_session: dict | None = None
+    # Stale threshold: if file hasn't changed for this many polls, return
+    # whatever we have.  Default: 30 polls × 2s interval = 60 seconds.
+    stale_threshold = max(int(60 / max(config.poll_interval_seconds, 0.5)), 10)
     while time.time() < deadline:
         if not session_path.exists():
             time.sleep(config.poll_interval_seconds)
@@ -223,6 +234,9 @@ def wait_for_completed_session(session_path: Path, config: OperatorConfig) -> di
         latest_session = session
         latest_request = get_latest_request(latest_session)
         if latest_request and request_completed(latest_session, latest_request) and quiet_rounds >= config.quiet_period_polls:
+            return latest_session
+        # Stale file: Copilot stopped writing events (crash, cancellation, etc.)
+        if latest_session and quiet_rounds >= stale_threshold:
             return latest_session
         time.sleep(config.poll_interval_seconds)
 
