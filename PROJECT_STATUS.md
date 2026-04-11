@@ -5,7 +5,7 @@
 > **Python:** ≥ 3.10  
 > **Trạng thái:** Session detection fix + i18n (--lang vi) + E2E trên localrag  
 > **Cập nhật:** 2026-04-11  
-> **Remote:** cần push (2 commits ahead of origin/main)
+> **Remote:** synced with origin/main (e7365da)
 
 ---
 
