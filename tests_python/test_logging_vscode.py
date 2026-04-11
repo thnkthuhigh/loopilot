@@ -166,6 +166,9 @@ class TestSnapshotChatSessions(unittest.TestCase):
             (chat_dir / "readme.txt").write_text("nope")
             result = snapshot_chat_sessions(chat_dir)
             self.assertEqual(len(result), 2)
+            for path, val in result.items():
+                self.assertIsInstance(val, tuple)
+                self.assertEqual(len(val), 2)  # (mtime, size)
 
 
 class TestWaitForSessionFile(unittest.TestCase):

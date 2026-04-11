@@ -886,38 +886,42 @@ def read_operator_focus(state_file: str | Path, summary_file: str | Path) -> dic
 
 
 def format_operator_focus(focus: dict[str, Any]) -> str:
+    from .locale import T
+
     lines = [
-        '=== Copilot Operator Focus ===',
-        f"Status: {focus.get('status', 'not_started')}",
-        f"Goal profile: {focus.get('goalProfile', '') or 'default'}",
+        T('focus_header'),
+        f"{T('status')}: {focus.get('status', 'not_started')}",
+        f"{T('goal_profile')}: {focus.get('goalProfile', '') or 'default'}",
     ]
     if focus.get('runId'):
-        lines.append(f"Run ID: {focus.get('runId')}")
+        lines.append(f"{T('run_id')}: {focus.get('runId')}")
     if focus.get('currentMilestoneId'):
-        lines.append(f"Current milestone: {focus.get('currentMilestoneId')}")
+        lines.append(f"{T('current_milestone')}: {focus.get('currentMilestoneId')}")
     if focus.get('nextMilestoneId'):
-        lines.append(f"Next milestone: {focus.get('nextMilestoneId')}")
+        lines.append(f"{T('next_milestone')}: {focus.get('nextMilestoneId')}")
     if focus.get('currentTaskId'):
-        lines.append(f"Current task: {focus.get('currentTaskId')}")
+        lines.append(f"{T('current_task')}: {focus.get('currentTaskId')}")
     if focus.get('nextTaskId'):
-        lines.append(f"Next task: {focus.get('nextTaskId')}")
+        lines.append(f"{T('next_task')}: {focus.get('nextTaskId')}")
     if focus.get('lastDecisionCode'):
-        lines.append(f"Last decision code: {focus.get('lastDecisionCode')}")
+        lines.append(f"{T('last_decision_code')}: {focus.get('lastDecisionCode')}")
     if focus.get('pendingReasonCode'):
-        lines.append(f"Pending reason code: {focus.get('pendingReasonCode')}")
+        lines.append(f"{T('pending_code')}: {focus.get('pendingReasonCode')}")
     if focus.get('pendingReason'):
-        lines.append(f"Pending reason: {focus.get('pendingReason')}")
+        lines.append(f"{T('pending_reason')}: {focus.get('pendingReason')}")
     if focus.get('planSummary'):
-        lines.append(f"Plan summary: {focus.get('planSummary')}")
+        lines.append(f"{T('plan_summary')}: {focus.get('planSummary')}")
     if focus.get('nextPrompt'):
-        lines.append('Next baton:')
+        lines.append(f"{T('next_baton')}:")
         lines.append(focus['nextPrompt'])
     if focus.get('runLogDir'):
-        lines.append(f"Run log directory: {focus.get('runLogDir')}")
+        lines.append(f"{T('run_log_dir')}: {focus.get('runLogDir')}")
     return '\n'.join(lines)
 
 
 def format_operator_status(status: dict[str, Any]) -> str:
+    from .locale import T
+
     lines: list[str] = []
 
     # Narrative Engine LiveNarrative (structured agent voice)
@@ -936,67 +940,67 @@ def format_operator_status(status: dict[str, Any]) -> str:
         pass
 
     lines.extend([
-        '=== Copilot Operator Status ===',
-        f"Status: {status.get('status', 'not_started')}",
-        f"Goal: {status.get('goal', '') or '(none yet)'}",
-        f"Goal profile: {status.get('goalProfile', '') or 'default'}",
-        f"Run ID: {status.get('runId', '') or '(not started)'}",
-        f"Iterations completed: {status.get('iterationsCompleted', 0)}",
+        T('status_header'),
+        f"{T('status')}: {status.get('status', 'not_started')}",
+        f"{T('goal')}: {status.get('goal', '') or T('none_yet')}",
+        f"{T('goal_profile')}: {status.get('goalProfile', '') or 'default'}",
+        f"{T('run_id')}: {status.get('runId', '') or T('not_started')}",
+        f"{T('iterations_completed')}: {status.get('iterationsCompleted', 0)}",
     ])
     insight = status.get('workspaceInsight') or {}
     if insight.get('ecosystem'):
-        lines.append(f"Workspace ecosystem: {insight.get('ecosystem')}")
+        lines.append(f"{T('workspace_ecosystem')}: {insight.get('ecosystem')}")
     if insight.get('packageManager'):
-        lines.append(f"Package manager: {insight.get('packageManager')}")
+        lines.append(f"{T('package_manager')}: {insight.get('packageManager')}")
     if status.get('planSummary'):
-        lines.append(f"Plan summary: {status.get('planSummary')}")
+        lines.append(f"{T('plan_summary')}: {status.get('planSummary')}")
     if status.get('currentMilestoneId'):
-        lines.append(f"Current milestone: {status.get('currentMilestoneId')}")
+        lines.append(f"{T('current_milestone')}: {status.get('currentMilestoneId')}")
     if status.get('nextMilestoneId'):
-        lines.append(f"Next milestone: {status.get('nextMilestoneId')}")
+        lines.append(f"{T('next_milestone')}: {status.get('nextMilestoneId')}")
     if status.get('currentTaskId'):
-        lines.append(f"Current task: {status.get('currentTaskId')}")
+        lines.append(f"{T('current_task')}: {status.get('currentTaskId')}")
     if status.get('nextTaskId'):
-        lines.append(f"Next task: {status.get('nextTaskId')}")
+        lines.append(f"{T('next_task')}: {status.get('nextTaskId')}")
     counts = status.get('milestoneCounts') or {}
     counts_text = '; '.join(f"{key}={value}" for key, value in sorted(counts.items()) if value)
     if counts_text:
-        lines.append(f"Milestone counts: {counts_text}")
+        lines.append(f"{T('milestone_counts')}: {counts_text}")
     task_counts = status.get('taskCounts') or {}
     task_counts_text = '; '.join(f"{key}={value}" for key, value in sorted(task_counts.items()) if value)
     if task_counts_text:
-        lines.append(f"Task counts: {task_counts_text}")
+        lines.append(f"{T('task_counts')}: {task_counts_text}")
     if status.get('lastIteration') is not None:
-        lines.append(f"Last iteration: {status.get('lastIteration')}")
+        lines.append(f"{T('last_iteration')}: {status.get('lastIteration')}")
     if status.get('lastScore') is not None:
-        lines.append(f"Last score: {status.get('lastScore')}")
+        lines.append(f"{T('last_score')}: {status.get('lastScore')}")
     if status.get('lastSessionId'):
-        lines.append(f"Last session ID: {status.get('lastSessionId')}")
+        lines.append(f"{T('last_session_id')}: {status.get('lastSessionId')}")
     if status.get('runLogDir'):
-        lines.append(f"Run log directory: {status.get('runLogDir')}")
+        lines.append(f"{T('run_log_dir')}: {status.get('runLogDir')}")
     if status.get('updatedAt'):
-        lines.append(f"Updated at: {status.get('updatedAt')}")
+        lines.append(f"{T('updated_at')}: {status.get('updatedAt')}")
     pending = status.get('pendingDecision') or {}
     if pending:
-        lines.append(f"Pending action: {pending.get('action', '')}")
+        lines.append(f"{T('pending_action')}: {pending.get('action', '')}")
         if pending.get('reasonCode'):
-            lines.append(f"Pending code: {pending.get('reasonCode')}")
+            lines.append(f"{T('pending_code')}: {pending.get('reasonCode')}")
         if pending.get('reason'):
-            lines.append(f"Pending reason: {pending.get('reason')}")
+            lines.append(f"{T('pending_reason')}: {pending.get('reason')}")
         if pending.get('nextPrompt'):
-            lines.append(f"Next prompt: {pending.get('nextPrompt')}")
+            lines.append(f"{T('next_prompt')}: {pending.get('nextPrompt')}")
     if status.get('finalReasonCode'):
-        lines.append(f"Final code: {status.get('finalReasonCode')}")
+        lines.append(f"{T('final_code')}: {status.get('finalReasonCode')}")
     if status.get('finalReason'):
-        lines.append(f"Final reason: {status.get('finalReason')}")
+        lines.append(f"{T('final_reason')}: {status.get('finalReason')}")
     if status.get('lastDecisionCode'):
-        lines.append(f"Last decision code: {status.get('lastDecisionCode')}")
+        lines.append(f"{T('last_decision_code')}: {status.get('lastDecisionCode')}")
     if status.get('lastSummary'):
-        lines.append(f"Last summary: {status.get('lastSummary')}")
+        lines.append(f"{T('last_summary')}: {status.get('lastSummary')}")
     plan = status.get('plan') or {}
     milestones = plan.get('milestones', []) or []
     if milestones:
-        lines.append('Milestones:')
+        lines.append(f"{T('milestones')}:")
         for milestone in milestones[:5]:
             lines.append(f"- [{milestone.get('status', 'pending')}] {milestone.get('id', '')}: {milestone.get('title', '')}")
             tasks = milestone.get('tasks', []) or []
@@ -1004,7 +1008,7 @@ def format_operator_status(status: dict[str, Any]) -> str:
                 lines.append(f"  - task [{task.get('status', 'pending')}] {task.get('id', '')}: {task.get('title', '')}")
     artifacts = status.get('lastArtifacts') or {}
     if artifacts:
-        lines.append('Artifacts:')
+        lines.append(f"{T('artifacts')}:")
         for key in ('prompt', 'response', 'decision', 'validationBefore', 'validationAfter'):
             if artifacts.get(key):
                 lines.append(f"- {key}: {artifacts[key]}")
@@ -1037,6 +1041,6 @@ def watch_operator_status(
 
         if max_updates is not None and updates >= max_updates:
             return status
-        if status.get('status') in {'complete', 'blocked'}:
+        if status.get('status') in {'complete', 'blocked', 'done', 'error', 'stopped'}:
             return status
         sleep_fn(interval_seconds)

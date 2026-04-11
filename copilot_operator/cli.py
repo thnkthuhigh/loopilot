@@ -1013,6 +1013,7 @@ def _issues(
 def _add_common_arguments(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument('--config', default='copilot-operator.yml', help='Path to the operator config file.')
     subparser.add_argument('--workspace', help='Override the workspace path from config.')
+    subparser.add_argument('--lang', choices=['en', 'vi'], default='en', help='Display language (en=English, vi=Tiếng Việt).')
 
 
 def _add_run_shared_arguments(subparser: argparse.ArgumentParser) -> None:
@@ -1254,4 +1255,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     parser.add_argument('-V', action='version', version=f'copilot-operator {_get_version()}')
     args = parser.parse_args(argv)
+    # Apply locale setting
+    lang = getattr(args, 'lang', 'en')
+    if lang and lang != 'en':
+        from .locale import set_locale
+        set_locale(lang)
     return args.handler(args)

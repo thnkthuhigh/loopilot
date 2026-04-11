@@ -102,10 +102,19 @@ def ensure_workspace_storage(config: OperatorConfig) -> Path:
     return storage
 
 
-def snapshot_chat_sessions(chat_dir: Path) -> dict[Path, float]:
+def snapshot_chat_sessions(chat_dir: Path) -> dict[Path, tuple[float, int]]:
+    """Return {path: (mtime, size)} for all session files in the chat directory."""
     if not chat_dir.exists():
         return {}
-    return {path: path.stat().st_mtime for path in chat_dir.glob('*.json*') if path.is_file()}
+    result: dict[Path, tuple[float, int]] = {}
+    for path in chat_dir.glob('*.json*'):
+        if path.is_file():
+            try:
+                st = path.stat()
+                result[path] = (st.st_mtime, st.st_size)
+            except OSError:
+                pass
+    return result
 
 
 def send_chat_prompt(
@@ -148,29 +157,58 @@ def send_chat_prompt(
     )
 
 
-def wait_for_session_file(chat_dir: Path, baseline: dict[Path, float], timeout_seconds: int, poll_interval: float) -> Path:
+def wait_for_session_file(chat_dir: Path, baseline: dict[Path, tuple[float, int]], timeout_seconds: int, poll_interval: float) -> Path:
+    """Wait for a new or updated chat session file.
+
+    Detects changes by comparing both mtime AND file size against the baseline
+    snapshot.  This handles Windows filesystems where mtime granularity can miss
+    rapid updates.
+    """
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         current = snapshot_chat_sessions(chat_dir)
-        changed = [path for path, mtime in current.items() if mtime > baseline.get(path, 0.0)]
+        changed: list[Path] = []
+        for path, (mtime, size) in current.items():
+            base = baseline.get(path)
+            if base is None:
+                # Brand-new file
+                changed.append(path)
+            else:
+                base_mtime, base_size = base
+                if mtime > base_mtime or size != base_size:
+                    changed.append(path)
         if changed:
-            return max(changed, key=lambda item: item.stat().st_mtime)
+            return max(changed, key=lambda p: p.stat().st_mtime)
         time.sleep(poll_interval)
     raise VSCodeChatRetryableError('Timed out waiting for a new or updated chat session file.')
 
 
 def wait_for_completed_session(session_path: Path, config: OperatorConfig) -> dict:
+    """Wait for the chat session to be completed by Copilot.
+
+    Tracks both mtime and file size to detect activity, which avoids false
+    'quiet' detection on Windows where mtime resolution can be coarse.
+    """
     deadline = time.time() + config.session_timeout_seconds
     quiet_rounds = 0
     last_mtime = 0.0
+    last_size = 0
     latest_session: dict | None = None
     while time.time() < deadline:
         if not session_path.exists():
             time.sleep(config.poll_interval_seconds)
             continue
-        current_mtime = session_path.stat().st_mtime
-        if current_mtime != last_mtime:
+        try:
+            st = session_path.stat()
+            current_mtime = st.st_mtime
+            current_size = st.st_size
+        except OSError:
+            time.sleep(config.poll_interval_seconds)
+            continue
+
+        if current_mtime != last_mtime or current_size != last_size:
             last_mtime = current_mtime
+            last_size = current_size
             quiet_rounds = 0
         else:
             quiet_rounds += 1

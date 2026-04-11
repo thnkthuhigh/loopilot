@@ -235,7 +235,14 @@ def _load_dotenv(workspace: Path) -> None:
 
 
 def load_config(path: str | Path | None = None, workspace_override: str | Path | None = None) -> OperatorConfig:
-    config_path = Path(path or 'copilot-operator.yml').resolve()
+    raw_path = Path(path or 'copilot-operator.yml')
+    # When --workspace is given and no explicit --config was provided,
+    # look for the config file inside the target workspace first.
+    if workspace_override and not path:
+        ws_candidate = Path(workspace_override).resolve() / raw_path
+        if ws_candidate.exists():
+            raw_path = ws_candidate
+    config_path = raw_path.resolve()
     raw = _read_yaml_file(config_path)
     config_dir = config_path.parent if config_path.exists() else Path.cwd()
     initial_workspace = Path(workspace_override).resolve() if workspace_override else _resolve_workspace_path(config_dir, raw.get('workspace'))

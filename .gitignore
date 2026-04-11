@@ -36,3 +36,4 @@ htmlcov/
 
 # IDE
 .idea/
+.localrag/
