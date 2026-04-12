@@ -225,6 +225,211 @@ class TestDotenvLoading(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Deep Brain — autonomous thinking methods
+# ---------------------------------------------------------------------------
+
+
+class TestDeepBrainCompose(unittest.TestCase):
+    """Tests for LLMBrain.compose_prompt()."""
+
+    def _make_brain(self):
+        config = LLMConfig(provider='xai', api_key='test', enabled=True)
+        return LLMBrain(config)
+
+    def test_compose_prompt_builds_prompt(self):
+        brain = self._make_brain()
+        compose_json = '{"thinking":"test analysis","strategy":"focus on tests","prompt":"Create unit tests for config.py","focus_files":["config.py"],"expected_outcome":"5 tests pass"}'
+        resp = LLMResponse(content=compose_json, model='test', tokens_used=100, success=True)
+        with patch.object(brain, 'ask', return_value=resp):
+            result, response = brain.compose_prompt(
+                goal='Add config module',
+                iteration=2,
+                history_summary='  Iter 1: score=70',
+                validation_summary='  [PASS] lint',
+                current_files='config.py\ntests/',
+                score=70,
+                blockers='',
+                repo_context='Python project',
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result['strategy'], 'focus on tests')
+        self.assertIn('config.py', result['prompt'])
+
+    def test_compose_prompt_returns_none_on_failure(self):
+        brain = self._make_brain()
+        resp = LLMResponse(content='', model='test', tokens_used=0, success=False, error='timeout')
+        with patch.object(brain, 'ask', return_value=resp):
+            result, response = brain.compose_prompt(
+                goal='test', iteration=1, history_summary='', validation_summary='',
+                current_files='', score=None, blockers='', repo_context='',
+            )
+        self.assertIsNone(result)
+
+
+class TestDeepBrainDecision(unittest.TestCase):
+    """Tests for LLMBrain.make_decision()."""
+
+    def _make_brain(self):
+        config = LLMConfig(provider='xai', api_key='test', enabled=True)
+        return LLMBrain(config)
+
+    def test_make_decision_stop(self):
+        brain = self._make_brain()
+        decision_json = '{"thinking":"goal achieved","action":"stop","reason":"tests pass, score high","next_prompt":"","strategy_change":null,"confidence":0.95}'
+        resp = LLMResponse(content=decision_json, model='test', tokens_used=80, success=True)
+        with patch.object(brain, 'ask', return_value=resp):
+            result, response = brain.make_decision(
+                goal='Fix bug', iteration=2, max_iterations=5, score=95,
+                target_score=85, summary='Bug fixed', history_summary='',
+                validation_summary='[PASS] tests', blockers='', diff_summary='',
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result['action'], 'stop')
+        self.assertGreaterEqual(result['confidence'], 0.9)
+
+    def test_make_decision_continue(self):
+        brain = self._make_brain()
+        decision_json = '{"thinking":"tests failing","action":"continue","reason":"fix test","next_prompt":"Fix the failing test in test_foo.py","strategy_change":null,"confidence":0.88}'
+        resp = LLMResponse(content=decision_json, model='test', tokens_used=80, success=True)
+        with patch.object(brain, 'ask', return_value=resp):
+            result, response = brain.make_decision(
+                goal='Add feature', iteration=1, max_iterations=5, score=60,
+                target_score=85, summary='WIP', history_summary='',
+                validation_summary='[FAIL] tests', blockers='test failing', diff_summary='',
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result['action'], 'continue')
+        self.assertIn('test_foo', result['next_prompt'])
+
+
+class TestDeepBrainReview(unittest.TestCase):
+    """Tests for LLMBrain.review_iteration()."""
+
+    def _make_brain(self):
+        config = LLMConfig(provider='xai', api_key='test', enabled=True)
+        return LLMBrain(config)
+
+    def test_review_good(self):
+        brain = self._make_brain()
+        review_json = '{"verdict":"good","issues":[],"on_track":true,"correction":null}'
+        resp = LLMResponse(content=review_json, model='test', tokens_used=50, success=True)
+        with patch.object(brain, 'ask', return_value=resp):
+            result, response = brain.review_iteration(
+                goal='Fix bug', diff_text='+def fix():\n+  return True',
+                validation_summary='[PASS] tests', score=90, iteration=1,
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result['verdict'], 'good')
+        self.assertTrue(result['on_track'])
+
+    def test_review_bad_with_correction(self):
+        brain = self._make_brain()
+        review_json = '{"verdict":"concerning","issues":["hardcoded path","missing test"],"on_track":false,"correction":"Replace hardcoded path with os.path.join and add test"}'
+        resp = LLMResponse(content=review_json, model='test', tokens_used=60, success=True)
+        with patch.object(brain, 'ask', return_value=resp):
+            result, response = brain.review_iteration(
+                goal='Add config', diff_text='+PATH = "C:\\temp"',
+                validation_summary='[PASS] lint', score=50, iteration=2,
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result['verdict'], 'concerning')
+        self.assertFalse(result['on_track'])
+        self.assertIn('hardcoded', result['correction'])
+
+
+# ---------------------------------------------------------------------------
+# Operator Deep Brain integration
+# ---------------------------------------------------------------------------
+
+from copilot_operator.operator import CopilotOperator, Decision
+
+
+class TestOperatorDeepBrain(unittest.TestCase):
+    """Tests for operator's deep brain integration methods."""
+
+    def _make_operator(self):
+        config = _make_test_config()
+        op = CopilotOperator(config, dry_run=True)
+        return op
+
+    def test_format_history_for_brain(self):
+        op = self._make_operator()
+        history = [
+            {'iteration': 1, 'score': 70, 'status': 'in_progress', 'summary': 'Started', 'blockers': []},
+            {'iteration': 2, 'score': 85, 'status': 'done', 'summary': 'Finished', 'blockers': [{'item': 'test fail'}]},
+        ]
+        result = op._format_history_for_brain(history)
+        self.assertIn('Iter 1', result)
+        self.assertIn('score=70', result)
+        self.assertIn('test fail', result)
+
+    def test_format_history_empty(self):
+        op = self._make_operator()
+        self.assertEqual(op._format_history_for_brain([]), '')
+
+    def test_format_validation_for_brain(self):
+        op = self._make_operator()
+        validations = [
+            {'name': 'tests', 'status': 'pass'},
+            {'name': 'lint', 'status': 'fail', 'output': 'error: unused import'},
+        ]
+        result = op._format_validation_for_brain(validations)
+        self.assertIn('[PASS] tests', result)
+        self.assertIn('[FAIL] lint', result)
+        self.assertIn('unused import', result)
+
+    def test_format_validation_empty(self):
+        op = self._make_operator()
+        self.assertEqual(op._format_validation_for_brain([]), 'No validations run.')
+
+    def test_try_llm_compose_no_brain(self):
+        """Without LLM brain, compose returns None (falls back to templates)."""
+        op = self._make_operator()
+        op._llm_brain = None
+        result = op._try_llm_compose_prompt('goal', [], [], Decision('continue', 'test'), '')
+        self.assertIsNone(result)
+
+    def test_try_llm_decide_no_brain(self):
+        """Without LLM brain, decision passes through unchanged."""
+        op = self._make_operator()
+        op._llm_brain = None
+        rule_dec = Decision('continue', 'test', 'do stuff', 'WORK_REMAINS')
+        from copilot_operator.prompts import Assessment
+        assessment = Assessment(status='in_progress', score=70, summary='wip', blockers=[])
+        result = op._try_llm_decide('goal', assessment, [], 1, rule_dec)
+        self.assertEqual(result.action, 'continue')
+        self.assertEqual(result.reason_code, 'WORK_REMAINS')
+
+    def test_try_llm_decide_safety_not_overridden(self):
+        """Hard safety stops (MAX_ITERATIONS) must NOT be overridden by brain."""
+        op = self._make_operator()
+        brain = LLMBrain(LLMConfig(provider='xai', api_key='test', enabled=True))
+        op._llm_brain = brain
+        safety_dec = Decision('stop', 'max iter', reason_code='MAX_ITERATIONS_REACHED')
+        from copilot_operator.prompts import Assessment
+        assessment = Assessment(status='in_progress', score=50, summary='wip', blockers=[])
+        result = op._try_llm_decide('goal', assessment, [], 6, safety_dec)
+        self.assertEqual(result.reason_code, 'MAX_ITERATIONS_REACHED')
+
+    def test_try_llm_review_no_brain(self):
+        """Without LLM brain, review returns empty string."""
+        op = self._make_operator()
+        op._llm_brain = None
+        from copilot_operator.prompts import Assessment
+        assessment = Assessment(status='done', score=90, summary='done', blockers=[])
+        result = op._try_llm_review_iteration('goal', assessment, [], 1)
+        self.assertEqual(result, '')
+
+
+def _make_test_config():
+    """Create a minimal test config."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    from copilot_operator.config import OperatorConfig
+    return OperatorConfig(workspace=tmp, state_file=tmp / 'state.json')
+
+
+# ---------------------------------------------------------------------------
 # CLI commands
 # ---------------------------------------------------------------------------
 

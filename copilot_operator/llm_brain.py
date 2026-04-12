@@ -617,6 +617,170 @@ Respond with JSON:
 }}"""
         return self.ask_json(prompt, system=system)
 
+    # ----- Deep Brain: autonomous thinking -----
+
+    def compose_prompt(
+        self,
+        goal: str,
+        iteration: int,
+        history_summary: str,
+        validation_summary: str,
+        current_files: str,
+        score: int | None,
+        blockers: str,
+        repo_context: str,
+    ) -> tuple[dict[str, Any] | None, LLMResponse]:
+        """Think about the situation and compose the exact prompt to send to Copilot.
+
+        Instead of using a rigid template, the brain analyses what happened so far,
+        what is broken, what is the best next action, and writes a targeted prompt.
+        """
+        system = (
+            'You are the strategic brain of an autonomous coding agent. '
+            'Your job is to THINK about the current situation and decide exactly '
+            'what instruction to give to GitHub Copilot in VS Code. '
+            'Copilot can: edit files, create files, run terminal commands, read code. '
+            'Write a prompt that is specific, actionable, and laser-focused on the '
+            'highest-impact action right now. Do NOT be vague or generic.'
+        )
+        prompt = f"""Analyse this situation and compose the best prompt for Copilot.
+
+## Goal
+{goal}
+
+## Current State
+- Iteration: {iteration}
+- Score: {score if score is not None else 'not yet scored'}
+- Blockers: {blockers or 'none'}
+
+## What happened so far
+{history_summary or 'First iteration — nothing done yet.'}
+
+## Validation results
+{validation_summary or 'No validations run yet.'}
+
+## Files in the workspace
+{repo_context[:3000]}
+
+## Your task
+Think step by step:
+1. What is the current status? What has been done, what remains?
+2. What is the SINGLE most impactful action to take right now?
+3. What specific files need to change? What specific code changes?
+4. What should Copilot check/test after making changes?
+
+Then write the exact prompt.
+
+Respond with JSON:
+{{
+  "thinking": "your step-by-step analysis (2-4 sentences)",
+  "strategy": "overall approach for this iteration",
+  "prompt": "the exact, detailed prompt to send to Copilot (be specific about files, functions, and changes)",
+  "focus_files": ["list of files Copilot should focus on"],
+  "expected_outcome": "what success looks like after this iteration"
+}}"""
+        return self.ask_json(prompt, system=system)
+
+    def make_decision(
+        self,
+        goal: str,
+        iteration: int,
+        max_iterations: int,
+        score: int | None,
+        target_score: int,
+        summary: str,
+        history_summary: str,
+        validation_summary: str,
+        blockers: str,
+        diff_summary: str,
+    ) -> tuple[dict[str, Any] | None, LLMResponse]:
+        """Decide whether to continue, stop, or change strategy.
+
+        Replaces the rule-based _decide() for the strategic part — the brain
+        analyses the full situation and makes an intelligent decision.
+        """
+        system = (
+            'You are the decision-making brain of an autonomous coding agent. '
+            'Analyse the situation and decide what to do next. '
+            'Be decisive. Do NOT be cautious when the work is clearly done. '
+            'Do NOT continue forever when the goal is met. '
+            'Do NOT stop early when significant work remains.'
+        )
+        prompt = f"""Should the operator continue or stop?
+
+## Goal
+{goal}
+
+## Current State
+- Iteration: {iteration} / {max_iterations}
+- Score: {score if score is not None else 'unknown'}
+- Target score: {target_score}
+- Summary: {summary}
+- Blockers: {blockers or 'none'}
+
+## History
+{history_summary}
+
+## Validation Results
+{validation_summary}
+
+## Code Changes (this iteration)
+{diff_summary[:2000] or 'No diff available'}
+
+## Think about:
+1. Is the goal genuinely complete? Score ≥ target AND no critical blockers?
+2. If not complete, what is the most effective next step?
+3. Is the operator stuck in a loop (repeating same actions)?
+4. Should the strategy change (different approach, narrower scope)?
+
+Respond with JSON:
+{{
+  "thinking": "your analysis (2-4 sentences)",
+  "action": "continue|stop",
+  "reason": "why this decision",
+  "next_prompt": "if continue: exact prompt for next iteration (be specific)",
+  "strategy_change": "if the approach should change, describe how. null if staying course",
+  "confidence": 0.85
+}}"""
+        return self.ask_json(prompt, system=system)
+
+    def review_iteration(
+        self,
+        goal: str,
+        diff_text: str,
+        validation_summary: str,
+        score: int | None,
+        iteration: int,
+    ) -> tuple[dict[str, Any] | None, LLMResponse]:
+        """Review what Copilot did this iteration — catch problems before continuing.
+
+        This is a fast sanity check: did Copilot make meaningful progress?
+        Did it introduce bugs? Is it going in the right direction?
+        """
+        system = (
+            'You are a code review expert embedded in an autonomous coding agent. '
+            'Quickly review what was done this iteration. Be concise. '
+            'Focus on: correctness, direction (aligned with goal?), regressions.'
+        )
+        prompt = f"""Quick review of iteration {iteration}.
+
+Goal: {goal}
+Score: {score if score is not None else 'unknown'}
+
+Validation: {validation_summary}
+
+Code changes:
+{diff_text[:6000] or 'No changes detected'}
+
+Respond with JSON:
+{{
+  "verdict": "good|acceptable|concerning|bad",
+  "issues": ["list of specific problems found, empty if none"],
+  "on_track": true,
+  "correction": "if off-track: what to tell Copilot to fix. null if on-track"
+}}"""
+        return self.ask_json(prompt, system=system)
+
 
 # ---------------------------------------------------------------------------
 # JSON extraction helper

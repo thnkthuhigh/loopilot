@@ -71,6 +71,7 @@ from .prompts import (
     build_prompt_context,
     fallback_assessment,
     parse_operator_state,
+    render_repo_profile,
 )
 from .reasoning import Diagnosis, diagnose, format_diagnosis_for_prompt
 from .repo_inspector import as_dict
@@ -710,7 +711,29 @@ class CopilotOperator:
             vr_icon = '\u2705' if vr.get('status') == 'pass' else '\u274c'
             self._live_print(f'  {vr_icon} {vr.get("name", "?")}')
 
+        # --- Deep Brain: LLM reviews what Copilot did ---
+        brain_correction = self._try_llm_review_iteration(
+            goal=goal_text, assessment=assessment,
+            validation_results=after_validation_results, iteration=iteration,
+        )
+
         decision = self._decide(assessment, after_validation_results, iteration)
+
+        # --- Deep Brain: LLM enhances decision ---
+        decision = self._try_llm_decide(
+            goal=goal_text, assessment=assessment,
+            validation_results=after_validation_results,
+            iteration=iteration, rule_decision=decision,
+        )
+        # Inject brain correction into next prompt if problems found
+        if brain_correction and decision.action == 'continue':
+            decision = Decision(
+                action='continue',
+                reason=decision.reason,
+                next_prompt=f'⚠️ CORRECTION FROM REVIEW:\n{brain_correction}\n\n{decision.next_prompt}',
+                reason_code=decision.reason_code,
+            )
+
         decision_path = self._artifact_path(iteration, 'decision.json')
         dump_json(
             decision_path,
@@ -721,6 +744,7 @@ class CopilotOperator:
                 'nextPrompt': decision.next_prompt,
                 'assessment': assessment.raw,
                 'plan': self.runtime.get('plan', {}),
+                'brainCorrection': brain_correction or None,
             },
         )
 
@@ -1412,6 +1436,13 @@ class CopilotOperator:
             cross_repo_text=cross_repo_text,
             repo_map_text=repo_map_text,
         )
+
+        # --- Deep Brain: LLM composes the prompt instead of rigid templates ---
+        llm_composed = self._try_llm_compose_prompt(goal, history, validation_results, decision, repo_map_text)
+        if llm_composed:
+            logger.info('Using LLM-composed prompt (deep brain)')
+            return llm_composed
+
         if not history:
             return build_initial_prompt(goal, self.config.target_score, context)
         return build_follow_up_prompt(
@@ -2210,6 +2241,268 @@ class CopilotOperator:
         except Exception:
             pass  # LLM guidance is best-effort
         return ''
+
+    # --- Deep Brain: LLM-driven autonomous thinking ---
+
+    def _format_history_for_brain(self, history: list[dict[str, Any]]) -> str:
+        """Format history into a concise summary for LLM brain consumption."""
+        if not history:
+            return ''
+        lines = []
+        for h in history[-5:]:
+            blockers = h.get('blockers') or []
+            blocker_text = ', '.join(b.get('item', '') for b in blockers[:3]) if blockers else 'none'
+            lines.append(
+                f"  Iter {h.get('iteration')}: score={h.get('score')}, "
+                f"status={h.get('status')}, "
+                f"summary={h.get('summary', '')[:150]}, "
+                f"blockers=[{blocker_text}]"
+            )
+        return '\n'.join(lines)
+
+    def _format_validation_for_brain(self, validation_results: list[dict[str, Any]]) -> str:
+        """Format validation results for LLM brain."""
+        if not validation_results:
+            return 'No validations run.'
+        lines = []
+        for v in validation_results:
+            icon = 'PASS' if v.get('status') == 'pass' else 'FAIL'
+            output = v.get('output', '')[:200] if v.get('status') != 'pass' else ''
+            lines.append(f"  [{icon}] {v.get('name', '?')}{f': {output}' if output else ''}")
+        return '\n'.join(lines)
+
+    def _try_llm_compose_prompt(
+        self,
+        goal: str,
+        history: list[dict[str, Any]],
+        validation_results: list[dict[str, Any]],
+        decision: Decision,
+        repo_map_text: str,
+    ) -> str | None:
+        """Try to have the LLM brain compose the prompt autonomously.
+
+        Falls back to None (use template) if brain is not available or fails.
+        The composed prompt wraps the LLM's strategic thinking inside the
+        standard OPERATOR_STATE contract so Copilot still returns structured output.
+        """
+        if not self._llm_brain or not self._llm_brain.is_ready:
+            return None
+        try:
+            iteration = len(history) + 1
+            last_score = history[-1].get('score') if history else None
+            blockers = ''
+            if history:
+                bl = history[-1].get('blockers') or []
+                blockers = '; '.join(b.get('item', '') for b in bl[:5])
+
+            result, response = self._llm_brain.compose_prompt(
+                goal=goal,
+                iteration=iteration,
+                history_summary=self._format_history_for_brain(history),
+                validation_summary=self._format_validation_for_brain(validation_results),
+                current_files=repo_map_text[:3000],
+                score=last_score,
+                blockers=blockers,
+                repo_context=render_repo_profile(self.config.repo_profile, self.config.workspace),
+            )
+            if not result or not response.success:
+                return None
+
+            composed_prompt = result.get('prompt', '')
+            thinking = result.get('thinking', '')
+            strategy = result.get('strategy', '')
+            if not composed_prompt:
+                return None
+
+            logger.info('Deep brain thinking: %s', thinking[:200])
+            logger.info('Deep brain strategy: %s', strategy[:200])
+            self._live_print(f'  [BRAIN] {thinking[:120]}')
+
+            # Wrap in standard contract so Copilot returns OPERATOR_STATE
+            return f"""You are GitHub Copilot running inside VS Code, driven by an autonomous operator.
+
+⚠️ MANDATORY: End your reply with EXACTLY these two XML blocks:
+<OPERATOR_STATE>{{"status":"done|continue|blocked","score":0,"summary":"","next_prompt":"","tests":"pass|fail|not_run","lint":"pass|fail|not_run","blockers":[],"needs_continue":false,"done_reason":""}}</OPERATOR_STATE>
+<OPERATOR_PLAN>{{"summary":"","current_milestone_id":"","next_milestone_id":"","current_task_id":"","next_task_id":"","milestones":[]}}</OPERATOR_PLAN>
+
+Goal: {goal}
+
+## Brain Analysis (iteration {iteration})
+Strategy: {strategy}
+
+## Your Task
+{composed_prompt}
+
+Rules:
+- Make real progress — edit files, not just advice.
+- AUTONOMOUS MODE: Never ask the user. Read/search/decide yourself.
+- Run checks before claiming done.
+- Score honestly 0-100. Only done if score ≥ {self.config.target_score} and no critical blockers.
+- If you need another turn, put exact next-step in next_prompt."""
+        except Exception as exc:
+            logger.debug('Deep brain compose failed: %s', exc)
+            return None
+
+    def _try_llm_decide(
+        self,
+        goal: str,
+        assessment: Assessment,
+        validation_results: list[dict[str, Any]],
+        iteration: int,
+        rule_decision: Decision,
+    ) -> Decision:
+        """Enhance the rule-based decision with LLM reasoning.
+
+        Called after the rule-based _decide(). If the LLM brain has a stronger
+        opinion (e.g. better next_prompt, different strategy), it can override.
+        Hard safety decisions (max iterations, blocked, protected paths) are NOT overridden.
+        """
+        if not self._llm_brain or not self._llm_brain.is_ready:
+            return rule_decision
+        # Don't override hard safety stops
+        if rule_decision.reason_code in (
+            'MAX_ITERATIONS_REACHED', 'COPILOT_BLOCKED', 'HINT_ABORT',
+            'PROTECTED_PATH_VIOLATION', 'DIFF_SCAN_BLOCKED', 'ESCALATION_REQUIRED',
+        ):
+            return rule_decision
+        try:
+            history = self.runtime.get('history', [])
+            diff_summary = ''
+            try:
+                diff_result = subprocess.run(
+                    ['git', 'diff', '--stat', 'HEAD'],
+                    cwd=str(self.config.workspace), capture_output=True, text=True,
+                    timeout=10, check=False,
+                )
+                diff_summary = diff_result.stdout[:2000]
+            except Exception:
+                pass
+
+            result, response = self._llm_brain.make_decision(
+                goal=goal,
+                iteration=iteration,
+                max_iterations=self.config.max_iterations,
+                score=assessment.score,
+                target_score=self.config.target_score,
+                summary=assessment.summary or '',
+                history_summary=self._format_history_for_brain(history),
+                validation_summary=self._format_validation_for_brain(validation_results),
+                blockers='; '.join(b.get('item', '') for b in (assessment.blockers or [])[:5]),
+                diff_summary=diff_summary,
+            )
+            if not result or not response.success:
+                return rule_decision
+
+            thinking = result.get('thinking', '')
+            llm_action = result.get('action', '')
+            llm_next = result.get('next_prompt', '')
+            llm_reason = result.get('reason', '')
+            strategy_change = result.get('strategy_change')
+            confidence = result.get('confidence', 0)
+
+            logger.info('Deep brain decision: action=%s confidence=%.2f thinking=%s',
+                        llm_action, confidence, thinking[:150])
+            self._live_print(f'  [BRAIN] Decision: {llm_action} ({thinking[:100]})')
+
+            # Only override if confidence is high enough
+            if confidence < 0.6:
+                return rule_decision
+
+            # LLM can improve the next_prompt even if action agrees
+            if llm_action == rule_decision.action:
+                if llm_next and rule_decision.action == 'continue':
+                    # LLM wrote a better baton — use it
+                    enriched_baton = llm_next
+                    if strategy_change:
+                        enriched_baton = f'STRATEGY CHANGE: {strategy_change}\n\n{enriched_baton}'
+                    return Decision(
+                        action='continue',
+                        reason=f'{rule_decision.reason} [Brain: {llm_reason[:100]}]',
+                        next_prompt=enriched_baton,
+                        reason_code=f'{rule_decision.reason_code}_BRAIN',
+                    )
+                return rule_decision
+
+            # LLM disagrees with rule-based decision
+            if llm_action == 'stop' and rule_decision.action == 'continue':
+                # LLM says stop — respect if confident
+                if confidence >= 0.8:
+                    return Decision(
+                        action='stop',
+                        reason=f'Brain recommends stop: {llm_reason}',
+                        reason_code='BRAIN_STOP',
+                    )
+            elif llm_action == 'continue' and rule_decision.action == 'stop':
+                # LLM says continue — only override soft stops
+                if rule_decision.reason_code in ('STOP_GATE_PASSED',) and confidence >= 0.85:
+                    return Decision(
+                        action='continue',
+                        reason=f'Brain overrides stop: {llm_reason}',
+                        next_prompt=llm_next or 'Continue improving — the brain identified remaining gaps.',
+                        reason_code='BRAIN_CONTINUE',
+                    )
+
+            return rule_decision
+        except Exception as exc:
+            logger.debug('Deep brain decide failed: %s', exc)
+            return rule_decision
+
+    def _try_llm_review_iteration(
+        self,
+        goal: str,
+        assessment: Assessment,
+        validation_results: list[dict[str, Any]],
+        iteration: int,
+    ) -> str:
+        """Ask the LLM to review what Copilot did — catch problems early.
+
+        Returns a correction prompt to prepend to the next baton, or '' if OK.
+        """
+        if not self._llm_brain or not self._llm_brain.is_ready:
+            return ''
+        try:
+            diff_text = ''
+            try:
+                diff_result = subprocess.run(
+                    ['git', 'diff', 'HEAD~1', '--', '.'],
+                    cwd=str(self.config.workspace), capture_output=True, text=True,
+                    timeout=15, check=False,
+                )
+                diff_text = diff_result.stdout[:6000]
+            except Exception:
+                pass
+            if not diff_text:
+                return ''
+
+            result, response = self._llm_brain.review_iteration(
+                goal=goal,
+                diff_text=diff_text,
+                validation_summary=self._format_validation_for_brain(validation_results),
+                score=assessment.score,
+                iteration=iteration,
+            )
+            if not result or not response.success:
+                return ''
+
+            verdict = result.get('verdict', 'acceptable')
+            issues = result.get('issues', [])
+            correction = result.get('correction')
+            on_track = result.get('on_track', True)
+
+            logger.info('Deep brain review: verdict=%s on_track=%s issues=%d', verdict, on_track, len(issues))
+            if verdict in ('good', 'acceptable') and on_track:
+                self._live_print(f'  [REVIEW] ✅ {verdict}')
+                return ''
+
+            # Problems found — build correction
+            self._live_print(f'  [REVIEW] ⚠️ {verdict}: {", ".join(issues[:3])}')
+            correction_text = correction or ''
+            if issues and not correction_text:
+                correction_text = 'Fix these issues before continuing: ' + '; '.join(issues[:5])
+            return correction_text
+        except Exception as exc:
+            logger.debug('Deep brain review failed: %s', exc)
+            return ''
 
     @staticmethod
     def _now() -> str:
