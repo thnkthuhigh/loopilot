@@ -31,7 +31,7 @@ from copilot_operator.narrative_formats import (
 
 class TestVersionConsistency:
     def test_init_version(self):
-        assert copilot_operator.__version__ == '3.1.0'
+        assert copilot_operator.__version__ == '3.2.0'
 
     def test_init_exports(self):
         """All key user-facing classes should be importable from the package."""

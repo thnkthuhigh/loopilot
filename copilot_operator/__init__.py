@@ -19,4 +19,4 @@ __all__ = [
     "load_llm_config_from_env",
 ]
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
