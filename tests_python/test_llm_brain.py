@@ -420,6 +420,48 @@ class TestOperatorDeepBrain(unittest.TestCase):
         result = op._try_llm_review_iteration('goal', assessment, [], 1)
         self.assertEqual(result, '')
 
+    def test_decide_blocked_with_workspace_changes(self):
+        """When Copilot doesn't emit OPERATOR_STATE but made changes, prompt should say don't re-edit."""
+        op = self._make_operator()
+        from copilot_operator.prompts import Assessment
+        assessment = Assessment(
+            status='blocked', score=None, summary='response without operator state',
+            blockers=[{'severity': 'high', 'item': 'no OPERATOR_STATE'}],
+            done_reason='Missing OPERATOR_STATE block.',
+        )
+        # Mock get_diff_summary to simulate real workspace changes
+        import copilot_operator.operator as op_mod
+        original_fn = op_mod.get_diff_summary
+        try:
+            op_mod.get_diff_summary = lambda ws: ' 3 files changed, 42 insertions(+), 5 deletions(-)'
+            decision = op._decide(assessment, [], 1)
+            self.assertEqual(decision.action, 'continue')
+            self.assertEqual(decision.reason_code, 'COPILOT_BLOCKED')
+            self.assertIn('Do NOT modify any files', decision.next_prompt)
+            self.assertIn('already made code changes', decision.next_prompt)
+        finally:
+            op_mod.get_diff_summary = original_fn
+
+    def test_decide_blocked_no_workspace_changes(self):
+        """When Copilot doesn't emit OPERATOR_STATE and no changes, use standard retry."""
+        op = self._make_operator()
+        from copilot_operator.prompts import Assessment
+        assessment = Assessment(
+            status='blocked', score=None, summary='empty',
+            blockers=[{'severity': 'high', 'item': 'no OPERATOR_STATE'}],
+            done_reason='Missing OPERATOR_STATE block.',
+        )
+        import copilot_operator.operator as op_mod
+        original_fn = op_mod.get_diff_summary
+        try:
+            op_mod.get_diff_summary = lambda ws: ''
+            decision = op._decide(assessment, [], 1)
+            self.assertEqual(decision.action, 'continue')
+            self.assertEqual(decision.reason_code, 'COPILOT_BLOCKED')
+            self.assertIn('You must end your response with a valid OPERATOR_STATE', decision.next_prompt)
+        finally:
+            op_mod.get_diff_summary = original_fn
+
 
 def _make_test_config():
     """Create a minimal test config."""

@@ -1393,6 +1393,19 @@ class CopilotOperator:
                 PromptSection(name='cross_repo', content=cross_repo_text, priority=3),
                 PromptSection(name='repo_map', content=self._get_repo_map_text(goal), priority=4),
             ]
+            # --- Telemetry-driven priority adjustment ---
+            # If past data shows a source never helps, demote it.
+            # If a source consistently helps, boost it.
+            telemetry = getattr(self, '_telemetry', None)
+            if telemetry and len(history) >= 2:
+                for s in sections:
+                    adj = telemetry.get_priority_adjustment(s.name)
+                    if adj != 0:
+                        new_prio = max(0, min(4, s.priority + adj))
+                        if new_prio != s.priority:
+                            logger.debug('Telemetry adjusts %s priority: %d -> %d', s.name, s.priority, new_prio)
+                            s.priority = new_prio
+
             full_intelligence, _budget = build_budgeted_sections(
                 sections, max_tokens=6000, score_declining=score_declining,
             )
@@ -1466,6 +1479,37 @@ class CopilotOperator:
                 return Decision(
                     action='stop',
                     reason=assessment.done_reason or 'Copilot reported a blocking condition.',
+                    reason_code='COPILOT_BLOCKED',
+                )
+            # Check if Copilot actually made code changes despite not emitting OPERATOR_STATE
+            workspace_has_changes = False
+            changed_files_hint = ''
+            try:
+                diff_stat = get_diff_summary(self.config.workspace)
+                if diff_stat and diff_stat.strip():
+                    workspace_has_changes = True
+                    changed_files_hint = diff_stat.strip().splitlines()[-1]  # e.g. "6 files changed, 98 insertions(+)"
+            except Exception:
+                pass
+
+            if workspace_has_changes:
+                return Decision(
+                    action='continue',
+                    reason=f'Copilot made changes ({changed_files_hint}) but did not emit OPERATOR_STATE — asking for status report only.',
+                    next_prompt=(
+                        'IMPORTANT: You already made code changes in the previous turn. '
+                        'Do NOT modify any files or re-apply any edits.\n\n'
+                        'Instead, review the current workspace state:\n'
+                        '1. Run the relevant tests (if any)\n'
+                        '2. Check lint/formatting\n'
+                        '3. Summarize what was accomplished\n\n'
+                        'Then emit your status report in exactly this format:\n\n'
+                        '<OPERATOR_STATE>\n'
+                        '{"status":"done","score":85,"summary":"Added input validation to ...","blockers":[],'
+                        '"tests":"pass","lint":"pass"}\n'
+                        '</OPERATOR_STATE>\n\n'
+                        'Use status="done" if the task is complete, or "in_progress" if more work remains.'
+                    ),
                     reason_code='COPILOT_BLOCKED',
                 )
             return Decision(
