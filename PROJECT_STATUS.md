@@ -679,7 +679,7 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 | Chạy 1 task sửa lint/type error | ✅ note-cli task 3 (CLI refactor) |
 | Chạy 1 task multi-iteration phức tạp | ✅ note-cli SQLite migration (3 iterations) |
 | Chạy trên dự án lớn (production) | ✅ english project — 835 server tests, 61 client tests |
-| Tổng kết operator gặp chỗ nào nhiều nhất | ✅ 7 bug đã tìm và fix |
+| Tổng kết operator gặp chỗ nào nhiều nhất | ✅ 12 bug đã tìm và fix |
 
 ### Còn lại
 
@@ -695,8 +695,8 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 | Operator chạy được trên repo thật | ✅ 2 repo (note-cli + english) |
 | Validation thật đã được điền vào config | ✅ Jest + Vitest + ESLint |
 | Có goal templates thật | ✅ 3 templates per project |
-| Có 3+ session thành công | ✅ 10 sessions (4 toy + 4 real + 2 production) |
-| Có runbook để người khác đọc và dùng | ✅ Có toàn bộ + troubleshooting 7 bugs |
+| Có 3+ session thành công | ✅ 13 sessions (4 toy + 4 note-cli + 2 english + 3 localrag) |
+| Có runbook để người khác đọc và dùng | ✅ Có toàn bộ + troubleshooting 12 bugs |
 
 ---
 
@@ -890,13 +890,15 @@ Code production đã hoàn chỉnh. Đã test trên 2 repo thật (note-cli + en
 
 ### Mô tả thẳng thắn
 
-> A hardened Copilot supervisor with runtime safety guards, intelligent stop control, formalized worker contracts, and CI integration. Platform coupling remains a risk but is now actively mitigated.
+> An autonomous Copilot supervisor with 51 modules, intelligence engine, narrative UX, and i18n — battle-tested on 13 sessions across 5 repos. Đang ở giai đoạn "internal power tool rất mạnh", chưa ở mức "devtool phổ cập cho người lạ". Build đủ rồi — giờ cần execution proof.
 
-### Điểm yếu số 1 — đã giảm thiểu
+### Session surface — vẫn là điểm coupling lớn nhất
 
-7/7 bug thực chiến đều liên quan đến **session surface** — vấn đề này **vẫn tồn tại** nhưng giờ đã có:
+12/12 bug thực chiến phần lớn liên quan đến **session surface** — vấn đề này **vẫn tồn tại** nhưng giờ đã có:
+- **Focus settle delay** (2s) ngăn race condition khi nhiều VS Code window
+- **Stale session timeout** (60s) tự return khi Copilot tool bị treo
 - **Lock file** ngăn chạy 2 operator cùng lúc
-- **Conflict detection** cảnh báo khi VS Code window đang bận  
+- **Conflict detection** cảnh báo khi VS Code window đang bận
 - **Checkpoint** cho phép resume sau crash
 - **Context bridge** duy trì continuity khi session mới được tạo
 
@@ -921,14 +923,21 @@ Worker giờ là **thực thể vận hành**, không chỉ wrapper:
 Đã chạy tốt trên:
 - repo nhỏ (toy Python)
 - repo vừa (note-cli, Python CLI)
+- repo vừa (localrag, Python CLI + RAG)
 - 1 repo production lớn (english, React + Express + MongoDB)
 
-**Nhưng:** Cần thêm repo với ecosystem khác (Go, Rust, Java, monorepo...) để validate claim đó.
+**Nhưng:** Cần thêm repo với ecosystem khác (Go, Rust, Java, monorepo...) và cần multi-session thực chiến để validate.
 
 ### Multi-session: code có, bằng chứng chưa có
 
 Scheduler, worker (giờ có contract), conflict tracker, baton merge — đã code xong.
 Nhưng **chưa từng chạy 2+ sessions song song trên repo thật**.
+Lưu ý: `run_multi_session()` hiện chạy **tuần tự** (blocking loop), chưa song song thật sự.
+
+### CI integration: module có, CLI chưa có
+
+`ci_integration.py` đã có đầy đủ (trigger, wait, analyse, fix prompt).
+Nhưng **chưa có CLI command** (`copilot-operator ci`) và **chưa tích hợp vào operator loop**.
 
 ### Đánh giá thẳng
 
@@ -936,39 +945,39 @@ Nhưng **chưa từng chạy 2+ sessions song song trên repo thật**.
 |----------|------:|---------|
 | Ý tưởng | 9/10 | Autonomous meta-agent điều khiển Copilot — rất khác biệt |
 | Độ khác biệt | 8.5/10 | Không tool nào làm đúng cách này |
-| Kiến trúc | 9/10 | 50 module tách rõ, testable, extensible |
-| Thực chiến | 8/10 | 10 sessions, 4 repos, 7 bugs fixed |
-| Runtime safety | 8/10 | Lock, checkpoint, stop controller, worker contract |
-| Độ bền dài hạn | 7.5/10 | Cải thiện từ 6.5 nhờ runtime guard + stop controller |
+| Kiến trúc | 9/10 | 51 module tách rõ, testable, extensible |
+| Thực chiến | 8.5/10 | 13 sessions, 5 repos, 12 bugs fixed |
+| Runtime safety | 8.5/10 | Lock, checkpoint, stop controller, focus settle, stale timeout |
+| UX / i18n | 8/10 | --live, --short, --lang vi, auto-summary |
+| Độ bền dài hạn | 7.5/10 | Platform coupling vẫn là rủi ro chính |
 | Tiềm năng (nếu đi đúng) | 9/10 | Rất đáng phát triển tiếp |
 
 ### Kết luận
 
-- Không còn là prototype
-- Đã có giá trị thật (10 sessions thành công, production repo)
-- Rất ấn tượng với tư cách dự án cá nhân
-- **v2.5.0 đã bổ sung narrative + mission memory + memory promotion**
-- **v2.6.0 đã bổ sung diff security scan + 5-tier memory model (task ledger, archive retrieval, commitment summary)**
-- **v2.6.1 đã bổ sung memory hardening: BM25 retrieval, priority pressure, mission drift guard**
-- **v2.7.0 đã bổ sung memory v2: semantic retrieval, priority system (P0–P3 + escalation), mission authority (veto + override)**
-- **v2.8.0 đã bổ sung intelligence engine: context budget, adaptive strategy, self-evaluation loop**
-- **v2.9.0 đã bổ sung intelligence actuation: hint actuator, benchmark learner, telemetry**
-- **v3.0.0 đã bổ sung AI Narrative UI: 4-view structured agent voice + explain CLI**
-- **v3.0.0 đã bổ sung Integration & Loop Closure: benchmark→learner, trace persistence, watch→LiveNarrative, version sync**
-- **v3.1.0 đã bổ sung Narrative UX: --live streaming, auto-summary, explain --short**
-- **Điểm cần làm tiếp là multi-session thực chiến và CI integration E2E**
+- Không còn là prototype — đã là **internal power tool** hoàn chỉnh
+- Đã có giá trị thật (13 sessions thành công, 5 repos bao gồm production app)
+- **Giai đoạn hiện tại: "đã có hệ mạnh, giờ phải chứng minh, siết, và tận dụng"**
+- Bước tiếp không phải "build thêm cho to" mà là **ép hệ thắng trên tình huống thật**
+- **v3.1.0**: --lang vi, --live streaming, auto-summary, session race fix, stale timeout, localrag E2E
+- **Điểm cần làm tiếp:**
+  1. Multi-session thực chiến (2 workers trên repo thật)
+  2. CI integration E2E (trigger → fail → fix → pass)
+  3. Siết usage loop hàng ngày
+  4. Không mở thêm module lớn nữa
 
 ---
 
 ## 15. Chiến lược phát triển tiếp
 
-### Hướng đi: Internal power tool trước, polish thành public repo sau
+### Hướng đi: Execution proof trước, không mở thêm module
 
-**Không productize nặng.** Mục tiêu giai đoạn tiếp:
-- Biến nó thành "operating system" cho workflow code cá nhân
-- Giảm tối đa công babysit Copilot
-- Chạy ổn trên 1–3 repo dùng nhiều nhất
-- Song song polish repo công khai (README, docs, case studies)
+**Đừng build thêm cho to.** Lấy cái đã có, ép nó thắng trên tình huống thật.
+
+Mục tiêu giai đoạn tiếp:
+- Chứng minh multi-session hoạt động trên repo thật
+- Chứng minh CI loop (trigger → fail → fix → pass) hoạt động
+- Siết usage loop hàng ngày cho chính mình
+- Polish doc/positioning cho khớp thực lực
 
 ### ✅ Đã hoàn thành trong v2.6.0 (Security + 5-Tier Memory)
 
@@ -1026,31 +1035,42 @@ Nhưng **chưa từng chạy 2+ sessions song song trên repo thật**.
 
 ### Ưu tiên tiếp theo
 
-#### Multi-session thực chiến 🟡 MEDIUM
+#### 🔴 Ưu tiên 1: Multi-session thực chiến
 
 **Không viết thêm code scheduler.** Đem scheduler đã có ra chiến trường:
 
 - 1 worker implement + 1 worker test/audit
-- Chạy trên repo thật
-- Đo: conflict rate, merge pain, token/time savings
+- Chạy trên repo thật (localrag hoặc note-cli)
+- Đo 3 thứ: conflict rate, merge pain, time/token savings
 - **Nếu multi-session không thắng rõ ràng → không promote nó thành feature chính**
+- Lưu ý: cần sửa `run_multi_session()` từ tuần tự → song song thật
 
-#### CI integration E2E test 🟢 LOW
+#### 🟠 Ưu tiên 2: CI integration E2E
 
 Module `ci_integration.py` viết xong. Cần:
-- Pipeline GitHub Actions thật trên loopilot hoặc repo test
-- E2E: operator trigger CI → đọc kết quả → fix nếu fail
+- Thêm CLI command `copilot-operator ci` (trigger/check/wait)
+- Thêm config field `ci_workflow_id` vào YAML
+- Pipeline GitHub Actions thật trên loopilot
+- E2E: operator trigger CI → CI fail → operator đọc lỗi → operator sửa → CI pass
+- **Milestone rất đáng tiền: chứng minh full DevOps loop**
 
-### Hoãn lại (chưa đúng thời điểm)
+#### 🟡 Ưu tiên 3: Siết usage loop hàng ngày
+
+```
+queue → run --live → summary → explain --short → roi
+```
+
+Mục tiêu: biến nó thành thói quen thật, phát hiện UX còn cấn chỗ nào.
+
+#### 🟢 Ưu tiên 4: Chưa nên làm
 
 | Feature | Lý do hoãn |
 |---------|-----------|
-| UI Driver Fallback | Dễ nợ kỹ thuật, CLI đã xử lý ~95% case |
 | Web UI Dashboard | Chưa đủ user base, TUI đủ dùng |
-| Team collaboration | Chưa ổn cho 1 người, chưa nên mở cho nhiều người |
 | Plugin system | Over-engineering ở giai đoạn này |
 | Cloud deployment | Local-first vẫn đúng strategy |
 | VS Code Extension packaging | Cần platform coupling ổn trước |
+| Team collaboration | Chưa ổn cho 1 người, chưa nên mở cho nhiều người |
 
 ---
 
