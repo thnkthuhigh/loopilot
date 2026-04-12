@@ -587,6 +587,151 @@ def _nightly(
     return 0 if report.failed == 0 else 1
 
 
+def _ci(
+    config_path: str | None,
+    workspace_override: str | None,
+    action: str,
+    workflow_id: str,
+    run_id: int,
+    timeout: int,
+    fix: bool,
+    max_iterations: int,
+    dry_run: bool,
+    live: bool,
+) -> int:
+    """CI integration — trigger, check, wait, and optionally fix CI failures."""
+    from .ci_integration import (
+        analyse_run,
+        get_latest_run,
+        list_workflows,
+        load_ci_config,
+        trigger_workflow,
+        wait_for_run,
+    )
+
+    ci_config = load_ci_config()
+    if not ci_config.is_configured:
+        print(_term_err('CI not configured. Set GITHUB_TOKEN and ensure git remote points to GitHub.'), file=sys.stderr)
+        return 1
+
+    if action == 'list':
+        workflows = list_workflows(ci_config)
+        if not workflows:
+            print('No workflows found.')
+            return 0
+        for w in workflows:
+            state_icon = '✅' if w['state'] == 'active' else '⏸'
+            print(f"  {state_icon} {w['name']} (id={w['id']}, path={w['path']})")
+        return 0
+
+    if action == 'trigger':
+        if not workflow_id:
+            print(_term_err('--workflow-id is required for trigger.'), file=sys.stderr)
+            return 1
+        ok = trigger_workflow(ci_config, workflow_id)
+        if ok:
+            print(_term_ok('Workflow triggered.'))
+            return 0
+        print(_term_err('Failed to trigger workflow.'), file=sys.stderr)
+        return 1
+
+    if action == 'check':
+        run = get_latest_run(ci_config, workflow_id=workflow_id) if workflow_id else get_latest_run(ci_config)
+        if not run:
+            print('No runs found.')
+            return 0
+        icon = '✅' if run.conclusion == 'success' else '❌' if run.conclusion == 'failure' else '⏳'
+        print(f'{icon} {run.name} (#{run.run_id})')
+        print(f'  Status: {run.status}, Conclusion: {run.conclusion}')
+        print(f'  Branch: {run.head_branch}, SHA: {run.head_sha[:8]}')
+        print(f'  URL: {run.url}')
+        if run.conclusion == 'failure':
+            result = analyse_run(ci_config, run.run_id)
+            if result.failed_jobs:
+                print(f'  Failed jobs: {", ".join(result.failed_jobs)}')
+            if result.failed_steps:
+                print('  Failed steps:')
+                for step in result.failed_steps:
+                    print(f'    ❌ {step}')
+            if result.log_excerpt:
+                print(f'  Log excerpt:\n    {result.log_excerpt[:500]}')
+        return 0 if run.conclusion == 'success' else 1
+
+    if action == 'wait':
+        target_run_id = run_id
+        if not target_run_id:
+            run = get_latest_run(ci_config, workflow_id=workflow_id) if workflow_id else get_latest_run(ci_config)
+            if not run:
+                print(_term_err('No runs found to wait for.'), file=sys.stderr)
+                return 1
+            target_run_id = run.run_id
+        print(f'Waiting for run #{target_run_id} (timeout={timeout}s)...', file=sys.stderr)
+        completed = wait_for_run(ci_config, target_run_id, timeout_seconds=timeout)
+        if not completed:
+            print(_term_err(f'Timed out waiting for run #{target_run_id}.'), file=sys.stderr)
+            return 1
+        icon = '✅' if completed.conclusion == 'success' else '❌'
+        print(f'{icon} Run #{completed.run_id}: {completed.conclusion}')
+        return 0 if completed.conclusion == 'success' else 1
+
+    if action == 'fix':
+        # Full CI loop: check latest → if fail → build fix prompt → run operator
+        run = get_latest_run(ci_config, workflow_id=workflow_id) if workflow_id else get_latest_run(ci_config)
+        if not run:
+            print(_term_err('No CI runs found.'), file=sys.stderr)
+            return 1
+        if run.conclusion == 'success':
+            print(_term_ok(f'CI is green (#{run.run_id}). Nothing to fix.'))
+            return 0
+        if run.status != 'completed':
+            print(f'Run #{run.run_id} still {run.status}. Waiting...', file=sys.stderr)
+            run = wait_for_run(ci_config, run.run_id, timeout_seconds=timeout)
+            if not run or run.conclusion == 'success':
+                print(_term_ok('CI passed.') if run else _term_err('Timed out.'))
+                return 0 if run else 1
+
+        result = analyse_run(ci_config, run.run_id)
+        print(f'❌ CI failed (#{run.run_id}): {", ".join(result.failed_jobs)}', file=sys.stderr)
+
+        # Build fix goal from CI failure analysis
+        fix_goal = _build_ci_fix_goal(result)
+        print(f'Fix goal: {fix_goal[:200]}...', file=sys.stderr)
+
+        if dry_run:
+            print(json.dumps({'goal': fix_goal, 'ci_result': {'run_id': result.run_id, 'failed_jobs': result.failed_jobs}}, indent=2))
+            return 0
+
+        config = load_config(config_path, workspace_override)
+        if max_iterations:
+            config.max_iterations = max_iterations
+        operator = CopilotOperator(config, dry_run=False, live=live)
+        op_result = operator.run(goal=fix_goal)
+        op_result.pop('_narrativeEngine', None)
+        print(json.dumps(op_result, indent=2, ensure_ascii=False))
+        return 0 if op_result.get('status') == 'complete' else 1
+
+    print(_term_err(f'Unknown CI action: {action}'), file=sys.stderr)
+    return 1
+
+
+def _build_ci_fix_goal(result: object) -> str:
+    """Build an operator goal from a CI failure analysis."""
+    lines = ['Fix the CI pipeline failure.', '']
+    if result.failed_jobs:
+        lines.append(f'Failed jobs: {", ".join(result.failed_jobs)}')
+    if result.failed_steps:
+        lines.append('Failed steps:')
+        for step in result.failed_steps[:10]:
+            lines.append(f'  - {step}')
+    if result.log_excerpt:
+        lines.append('')
+        lines.append('Error log excerpt:')
+        lines.append(f'```\n{result.log_excerpt[:1500]}\n```')
+    lines.append('')
+    lines.append('Analyse the error, fix the root cause, and ensure all tests pass.')
+    return '\n'.join(lines)
+
+
 def _roi(
     config_path: str | None,
     workspace_override: str | None,
@@ -1248,6 +1393,23 @@ def build_parser() -> argparse.ArgumentParser:
     policy_cmd.add_argument('--audit', action='store_true', help='Show recent audit trail.')
     policy_cmd.add_argument('--limit', type=int, default=20, help='Number of audit entries to show.')
     policy_cmd.set_defaults(handler=lambda args: _policy(args.config, args.workspace, args.audit, args.limit))
+
+    # --- CI: trigger, check, wait, and fix CI failures ---
+    ci_cmd = subparsers.add_parser('ci', help='CI integration — trigger, check, wait for, and fix CI failures.')
+    _add_common_arguments(ci_cmd)
+    ci_cmd.add_argument('action', choices=['list', 'trigger', 'check', 'wait', 'fix'],
+                        help='list: show workflows. trigger: start a workflow. check: show latest run. wait: poll until done. fix: auto-fix CI failure.')
+    ci_cmd.add_argument('--workflow-id', default='', help='Workflow ID or filename (e.g. "ci.yml").')
+    ci_cmd.add_argument('--run-id', type=int, default=0, help='Specific run ID (for wait).')
+    ci_cmd.add_argument('--timeout', type=int, default=600, help='Timeout in seconds for wait/fix (default: 600).')
+    ci_cmd.add_argument('--max-iterations', type=int, default=3, help='Max operator iterations for fix (default: 3).')
+    ci_cmd.add_argument('--dry-run', action='store_true', help='Show fix goal without running operator.')
+    ci_cmd.add_argument('--live', action='store_true', help='Live output during fix.')
+    ci_cmd.set_defaults(handler=lambda args: _ci(
+        args.config, args.workspace, args.action, args.workflow_id,
+        args.run_id, args.timeout, args.action == 'fix',
+        args.max_iterations, args.dry_run, getattr(args, 'live', False),
+    ))
 
     return parser
 

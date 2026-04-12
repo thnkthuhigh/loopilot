@@ -92,11 +92,13 @@ from .runtime_guard import (
     save_checkpoint,
 )
 from .scheduler import (
+    FileConflictTracker,
     create_scheduler_plan,
     get_next_runnable_slot,
     is_plan_complete,
     mark_slot_complete,
     mark_slot_running,
+    merge_batons,
     render_scheduler_plan,
     update_plan_status,
 )
@@ -1830,10 +1832,13 @@ class CopilotOperator:
         """Run a multi-session plan with different roles (coder, reviewer, tester, etc.).
 
         Each role runs sequentially, respecting dependency order.
+        Baton context from completed slots is passed to subsequent sessions.
+        File conflict tracking prevents sessions from stomping each other's changes.
         Returns aggregate result with per-slot outcomes.
         """
         plan = create_scheduler_plan(goal, roles=roles or ['coder', 'reviewer'])
         plan.status = 'running'
+        conflict_tracker = FileConflictTracker()
         logger.info('Multi-session plan created: %d slots, roles=%s',
                      len(plan.slots), [s.role for s in plan.slots])
         self._live_print(f'\n{bold("Multi-session plan")}:\n{render_scheduler_plan(plan)}\n')
@@ -1848,6 +1853,13 @@ class CopilotOperator:
             logger.info('Running slot: role=%s goal_profile=%s', slot.role, slot.goal_profile)
             self._live_print(f'\n{cyan(f"[{slot.role}]")} Starting session...')
 
+            # Build baton context from completed predecessor sessions
+            completed_slots = [s for s in plan.slots if s.status == 'complete']
+            baton_context = merge_batons(completed_slots) if completed_slots else ''
+            slot_goal = slot.goal
+            if baton_context:
+                slot_goal = f'{slot.goal}\n\n---\n\n{baton_context}'
+
             # Create a fresh operator for each slot with slot-specific config
             from dataclasses import replace as dc_replace
             slot_config = dc_replace(
@@ -1856,14 +1868,25 @@ class CopilotOperator:
             )
             slot_operator = CopilotOperator(slot_config, dry_run=self.dry_run, live=self.live)
             try:
-                result = slot_operator.run(goal=slot.goal)
+                result = slot_operator.run(goal=slot_goal)
             except Exception as exc:
                 result = {'status': 'error', 'reason': str(exc), 'reasonCode': 'SLOT_ERROR'}
 
+            # Track file ownership for conflict detection
+            changed_files = result.get('allChangedFiles', [])
+            if changed_files:
+                conflicts = conflict_tracker.claim_files(slot.slot_id, slot.role, changed_files)
+                if conflicts:
+                    logger.warning('File conflicts detected in %s: %s', slot.role, conflicts)
+                    result.setdefault('warnings', []).append(f'File conflicts: {conflicts}')
+
             mark_slot_complete(slot, result)
+            score = result.get('score', 'n/a')
+            status = result.get('status', '?')
+            changed_count = len(changed_files)
             self._live_print(
                 f'{cyan(f"[{slot.role}]")} '
-                f'Finished: status={result.get("status")}, score={result.get("score", "n/a")}'
+                f'Finished: status={status}, score={score}, files={changed_count}'
             )
 
         update_plan_status(plan)
